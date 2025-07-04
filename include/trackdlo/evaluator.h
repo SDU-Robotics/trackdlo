@@ -8,6 +8,8 @@
 using Eigen::MatrixXd;
 using cv::Mat;
 
+namespace trackdlo {
+
 class evaluator
 {
     public:
@@ -48,5 +50,6 @@ class evaluator
         int image_counter_;
         int num_of_nodes_;
 };
+} // namespace trackdlo
 
 #endif

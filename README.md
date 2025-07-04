@@ -11,7 +11,7 @@
 ## TrackDLO: Tracking Deformable Linear Objects Under Occlusion with Motion Coherence
 **IEEE Robotics and Automation Letters (IEEE Xplore: https://ieeexplore.ieee.org/document/10214157)**
 
-This repository contains the TrackDLO Robot Operating System (ROS) package. The TrackDLO ROS package is an implementation of our paper, *TrackDLO: Tracking Deformable Linear Objects Under Occlusion with Motion Coherence*, by Jingyi Xiang, Holly Dinkel, Harry Zhao, Naixiang Gao, Brian Coltin, Trey Smith, and Timothy Bretl. The TrackDLO algorithm is implemented in C++.
+This repository contains the TrackDLO Robot Operating System (ROS2) package. The TrackDLO ROS2 package is an implementation of our paper, *TrackDLO: Tracking Deformable Linear Objects Under Occlusion with Motion Coherence*, by Jingyi Xiang, Holly Dinkel, Harry Zhao, Naixiang Gao, Brian Coltin, Trey Smith, and Timothy Bretl. The TrackDLO algorithm is implemented in C++.
 
 <p align="center">
   <img src="images/trackdlo1.gif" width="800" title="TrackDLO">

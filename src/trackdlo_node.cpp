@@ -1,5 +1,5 @@
-#include "../include/trackdlo.h"
-#include "../include/utils.h"
+#include <trackdlo/trackdlo.h>
+#include <trackdlo/utils.h>
 
 using cv::Mat;
 using Eigen::MatrixXd;
@@ -452,10 +452,10 @@ sensor_msgs::ImagePtr Callback(const sensor_msgs::ImageConstPtr& image_msg, cons
         tracking_img_msg = cv_bridge::CvImage(std_msgs::Header(), "bgr8", tracking_img).toImageMsg();
 
         // publish the results as a marker array
-        visualization_msgs::MarkerArray results = MatrixXd2MarkerArray(Y, result_frame_id, "node_results", {1.0, 150.0/255.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 1.0}, 0.01, 0.005, vis, {1.0, 0.0, 0.0, 1.0}, {1.0, 0.0, 0.0, 1.0});
-        // visualization_msgs::MarkerArray results = MatrixXd2MarkerArray(Y, result_frame_id, "node_results", {1.0, 150.0/255.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 1.0}, 0.01, 0.005);
-        visualization_msgs::MarkerArray guide_nodes_results = MatrixXd2MarkerArray(guide_nodes, result_frame_id, "guide_node_results", {0.0, 0.0, 0.0, 0.5}, {0.0, 0.0, 1.0, 0.5});
-        visualization_msgs::MarkerArray corr_priors_results = MatrixXd2MarkerArray(priors, result_frame_id, "corr_prior_results", {0.0, 0.0, 0.0, 0.5}, {1.0, 0.0, 0.0, 0.5});
+        visualization_msgs::msg::MarkerArray results = MatrixXd2MarkerArray(Y, result_frame_id, "node_results", {1.0, 150.0/255.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 1.0}, 0.01, 0.005, vis, {1.0, 0.0, 0.0, 1.0}, {1.0, 0.0, 0.0, 1.0});
+        // visualization_msgs::msg::MarkerArray results = MatrixXd2MarkerArray(Y, result_frame_id, "node_results", {1.0, 150.0/255.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 1.0}, 0.01, 0.005);
+        visualization_msgs::msg::MarkerArray guide_nodes_results = MatrixXd2MarkerArray(guide_nodes, result_frame_id, "guide_node_results", {0.0, 0.0, 0.0, 0.5}, {0.0, 0.0, 1.0, 0.5});
+        visualization_msgs::msg::MarkerArray corr_priors_results = MatrixXd2MarkerArray(priors, result_frame_id, "corr_prior_results", {0.0, 0.0, 0.0, 0.5}, {1.0, 0.0, 0.0, 0.5});
 
         // convert to pointcloud2 for eval
         pcl::PointCloud<pcl::PointXYZ> trackdlo_pc;
@@ -509,10 +509,10 @@ sensor_msgs::ImagePtr Callback(const sensor_msgs::ImageConstPtr& image_msg, cons
 
         // reset all guide nodes
         for (int i = 0; i < guide_nodes_results.markers.size(); i ++) {
-            guide_nodes_results.markers[i].action = visualization_msgs::Marker::DELETEALL;
+            guide_nodes_results.markers[i].action = visualization_msgs::msg::Marker::DELETEALL;
         }
         for (int i = 0; i < corr_priors_results.markers.size(); i ++) {
-            corr_priors_results.markers[i].action = visualization_msgs::Marker::DELETEALL;
+            corr_priors_results.markers[i].action = visualization_msgs::msg::Marker::DELETEALL;
         }
 
         // log time
@@ -603,9 +603,9 @@ int main(int argc, char **argv) {
     image_transport::Publisher mask_pub = it.advertise("/trackdlo/mask", pub_queue_size);
     image_transport::Publisher tracking_img_pub = it.advertise("/trackdlo/results_img", pub_queue_size);
     pc_pub = nh.advertise<sensor_msgs::PointCloud2>("/trackdlo/filtered_pointcloud", pub_queue_size);
-    results_pub = nh.advertise<visualization_msgs::MarkerArray>("/trackdlo/results_marker", pub_queue_size);
-    guide_nodes_pub = nh.advertise<visualization_msgs::MarkerArray>("/trackdlo/guide_nodes", pub_queue_size);
-    corr_priors_pub = nh.advertise<visualization_msgs::MarkerArray>("/trackdlo/corr_priors", pub_queue_size);
+    results_pub = nh.advertise<visualization_msgs::msg::MarkerArray>("/trackdlo/results_marker", pub_queue_size);
+    guide_nodes_pub = nh.advertise<visualization_msgs::msg::MarkerArray>("/trackdlo/guide_nodes", pub_queue_size);
+    corr_priors_pub = nh.advertise<visualization_msgs::msg::MarkerArray>("/trackdlo/corr_priors", pub_queue_size);
 
     // trackdlo point cloud topic
     result_pc_pub = nh.advertise<sensor_msgs::PointCloud2>("/trackdlo/results_pc", pub_queue_size);

@@ -1,22 +1,23 @@
-<?xml version="1.0"?>
-<package format="2">
+<?xml version="1.0" ?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
   <name>trackdlo</name>
   <version>1.0.0</version>
-  <description>TrackDLO ROS package</description>
+  <description>TrackDLO ROS2 package</description>
   <maintainer email="jingyix4@illinois.edu">Jingyi Xiang</maintainer>
   <author email="jingyix4@illinois.edu">Jingyi Xiang</author>
   <author email="hdinkel2@illinois.edu">Holly Dinkel</author>
   <license>MIT</license>
-  
-  <build_depend>roscpp</build_depend>
-  <exec_depend>roscpp</exec_depend>
-  <buildtool_depend>catkin</buildtool_depend>
 
-  <build_depend>pcl_conversions</build_depend>
-  <build_depend>pcl_ros</build_depend>
-  <build_depend>libpcl-all-dev</build_depend>
-  <exec_depend>pcl_conversions</exec_depend>
-  <exec_depend>pcl_ros</exec_depend>
-  <exec_depend>libpcl-all</exec_depend>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>ament_cmake_python</buildtool_depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <depend>rclcpp</depend>
+  <depend>std_msgs</depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>ros2_numpy</exec_depend>
 
 </package>

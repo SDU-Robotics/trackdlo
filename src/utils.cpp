@@ -1,5 +1,5 @@
-#include "../include/trackdlo.h"
-#include "../include/utils.h"
+#include <trackdlo/trackdlo.h>
+#include <trackdlo/utils.h>
 
 using Eigen::MatrixXd;
 using Eigen::RowVectorXd;
@@ -241,7 +241,7 @@ std::vector<MatrixXd> line_sphere_intersection (MatrixXd point_A, MatrixXd point
 }
 
 // node color and object color are in rgba format and range from 0-1
-visualization_msgs::MarkerArray MatrixXd2MarkerArray (MatrixXd Y,
+visualization_msgs::msg::MarkerArray MatrixXd2MarkerArray (MatrixXd Y,
                                                       std::string marker_frame, 
                                                       std::string marker_ns, 
                                                       std::vector<float> node_color, 
@@ -252,17 +252,17 @@ visualization_msgs::MarkerArray MatrixXd2MarkerArray (MatrixXd Y,
                                                       std::vector<float> occluded_node_color,
                                                       std::vector<float> occluded_line_color) {    // publish the results as a marker array
     
-    visualization_msgs::MarkerArray results = visualization_msgs::MarkerArray();
+    visualization_msgs::msg::MarkerArray results = visualization_msgs::msg::MarkerArray();
     
     bool last_node_visible = true;
     for (int i = 0; i < Y.rows(); i ++) {
-        visualization_msgs::Marker cur_node_result = visualization_msgs::Marker();
+        visualization_msgs::msg::Marker cur_node_result = visualization_msgs::msg::Marker();
     
         // add header
         cur_node_result.header.frame_id = marker_frame;
         // cur_node_result.header.stamp = ros::Time::now();
-        cur_node_result.type = visualization_msgs::Marker::SPHERE;
-        cur_node_result.action = visualization_msgs::Marker::ADD;
+        cur_node_result.type = visualization_msgs::msg::Marker::SPHERE;
+        cur_node_result.action = visualization_msgs::msg::Marker::ADD;
         cur_node_result.ns = marker_ns + "_node_" + std::to_string(i);
         cur_node_result.id = i;
 
@@ -306,12 +306,12 @@ visualization_msgs::MarkerArray MatrixXd2MarkerArray (MatrixXd Y,
             continue;
         }
 
-        visualization_msgs::Marker cur_line_result = visualization_msgs::Marker();
+        visualization_msgs::msg::Marker cur_line_result = visualization_msgs::msg::Marker();
 
         // add header
         cur_line_result.header.frame_id = marker_frame;
-        cur_line_result.type = visualization_msgs::Marker::CYLINDER;
-        cur_line_result.action = visualization_msgs::Marker::ADD;
+        cur_line_result.type = visualization_msgs::msg::Marker::CYLINDER;
+        cur_line_result.action = visualization_msgs::msg::Marker::ADD;
         cur_line_result.ns = marker_ns + "_line_" + std::to_string(i);
         cur_line_result.id = i;
 
@@ -357,7 +357,7 @@ visualization_msgs::MarkerArray MatrixXd2MarkerArray (MatrixXd Y,
 }
 
 // overload function
-visualization_msgs::MarkerArray MatrixXd2MarkerArray (std::vector<MatrixXd> Y,
+visualization_msgs::msg::MarkerArray MatrixXd2MarkerArray (std::vector<MatrixXd> Y,
                                                       std::string marker_frame, 
                                                       std::string marker_ns, 
                                                       std::vector<float> node_color, 
@@ -368,19 +368,19 @@ visualization_msgs::MarkerArray MatrixXd2MarkerArray (std::vector<MatrixXd> Y,
                                                       std::vector<float> occluded_node_color,
                                                       std::vector<float> occluded_line_color) {
     // publish the results as a marker array
-    visualization_msgs::MarkerArray results = visualization_msgs::MarkerArray();
+    visualization_msgs::msg::MarkerArray results = visualization_msgs::msg::MarkerArray();
 
     bool last_node_visible = true;
     for (int i = 0; i < Y.size(); i ++) {
-        visualization_msgs::Marker cur_node_result = visualization_msgs::Marker();
+        visualization_msgs::msg::Marker cur_node_result = visualization_msgs::msg::Marker();
 
         int dim = Y[0].cols();
     
         // add header
         cur_node_result.header.frame_id = marker_frame;
         // cur_node_result.header.stamp = ros::Time::now();
-        cur_node_result.type = visualization_msgs::Marker::SPHERE;
-        cur_node_result.action = visualization_msgs::Marker::ADD;
+        cur_node_result.type = visualization_msgs::msg::Marker::SPHERE;
+        cur_node_result.action = visualization_msgs::msg::Marker::ADD;
         cur_node_result.ns = marker_ns + "_node_" + std::to_string(i);
         cur_node_result.id = i;
 
@@ -424,12 +424,12 @@ visualization_msgs::MarkerArray MatrixXd2MarkerArray (std::vector<MatrixXd> Y,
             continue;
         }
 
-        visualization_msgs::Marker cur_line_result = visualization_msgs::Marker();
+        visualization_msgs::msg::Marker cur_line_result = visualization_msgs::msg::Marker();
 
         // add header
         cur_line_result.header.frame_id = marker_frame;
-        cur_line_result.type = visualization_msgs::Marker::CYLINDER;
-        cur_line_result.action = visualization_msgs::Marker::ADD;
+        cur_line_result.type = visualization_msgs::msg::Marker::CYLINDER;
+        cur_line_result.action = visualization_msgs::msg::Marker::ADD;
         cur_line_result.ns = marker_ns + "_line_" + std::to_string(i);
         cur_line_result.id = i;
 
