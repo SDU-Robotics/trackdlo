@@ -9,6 +9,10 @@
   <author email="hdinkel2@illinois.edu">Holly Dinkel</author>
   <license>MIT</license>
 
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+
   <buildtool_depend>ament_cmake</buildtool_depend>
   <buildtool_depend>ament_cmake_python</buildtool_depend>
 
@@ -17,7 +21,9 @@
 
   <depend>rclcpp</depend>
   <depend>std_msgs</depend>
+
   <exec_depend>rclpy</exec_depend>
   <exec_depend>ros2_numpy</exec_depend>
+  <exec_depend>ros2launch</exec_depend>
 
 </package>

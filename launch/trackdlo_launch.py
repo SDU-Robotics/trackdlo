@@ -11,18 +11,12 @@ from launch_ros.actions import Node, SetParameter
 
 def generate_launch_description():
 
-    remappable_topics = [
-        DeclareLaunchArgument("input_topic", default_value="~/input"),
-        DeclareLaunchArgument("output_topic", default_value="~/output"),
-    ]
-
     args = [
         DeclareLaunchArgument("name", default_value="trackdlo", description="node name"),
         DeclareLaunchArgument("namespace", default_value="", description="node namespace"),
         DeclareLaunchArgument("params", default_value=os.path.join(get_package_share_directory("trackdlo"), "config", "trackdlo_params.yml"), description="path to parameter file"),
         DeclareLaunchArgument("log_level", default_value="info", description="ROS logging level (debug, info, warn, error, fatal)"),
-        DeclareLaunchArgument("use_sim_time", default_value="false", description="use simulation clock"),
-        *remappable_topics,
+        DeclareLaunchArgument("use_sim_time", default_value="false", description="use simulation clock")
     ]
 
     nodes = [
@@ -33,9 +27,14 @@ def generate_launch_description():
             name=LaunchConfiguration("name"),
             parameters=[LaunchConfiguration("params")],
             arguments=["--ros-args", "--log-level", LaunchConfiguration("log_level")],
-            remappings=[(la.default_value[0].text, LaunchConfiguration(la.name)) for la in remappable_topics],
             output="screen",
-            emulate_tty=True,
+            emulate_tty=True
+        ),
+        Node(
+            package="trackdlo",
+            name="init_tracker",
+            executable="initialize.py",
+            parameters=[LaunchConfiguration("params")]
         )
     ]
 
