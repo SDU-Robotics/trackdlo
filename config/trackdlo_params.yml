@@ -1,7 +1,9 @@
 trackdlo:
   ros__parameters:
+    camera_info_topic: "lulz"
     param: 1.0
 
 init_tracker:
   ros__parameters:
+    camera_info_topic: "lulz"
     param: 1.0
