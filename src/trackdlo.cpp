@@ -10,6 +10,7 @@
 using Eigen::MatrixXd;
 using Eigen::RowVectorXd;
 using cv::Mat;
+using std::placeholders::_1;
 
 namespace trackdlo {
 
@@ -28,7 +29,7 @@ TrackDLONode::TrackDLONode(std::shared_ptr<TrackDLO> trackdlo) : Node("tracker_n
     this->declare_and_load_parameter("beta", beta_, "beta: MCT weight. the larger it is, the more rigid the object becomes", true);
     this->declare_and_load_parameter("lambda", lambda_, "lambda: MCT weight. the larger it is, the more rigid the object becomes", true);
     this->declare_and_load_parameter("alpha", alpha_, "alpha: the alignment strength", true);
-    this->declare_and_load_parameter("mu", mu_, "mu: ranges from 0 to 1, large mu indicates the point cloud is noisy", true, false, 0.0, 1.0);
+    this->declare_and_load_parameter("mu", mu_, "mu: ranges from 0 to 1, large mu indicates the point cloud is noisy", true);
     this->declare_and_load_parameter("max_iter", max_iter_, "max_iter: the maximum number of iterations the EM loop undergoes before termination", true);
     this->declare_and_load_parameter("tol", tol_, "tol: EM optimization convergence tolerance", true);
     this->declare_and_load_parameter("k_vis", k_vis_, "k_vis: the strength of visibility information's effect on membership probability computation", true);
@@ -92,10 +93,10 @@ void TrackDLONode::setup()
     }
 
     // Subcriptions
-    image_transport::ImageTransport it(this);
-    image_transport::Subscriber opencv_mask_sub = it.subscribe("/mask_with_occlusion", 10, update_opencv_mask);
-    init_nodes_sub_ = this->create_subscription<sensor_msgs::msg::PointCloud2>("/trackdlo/init_nodes", 1, update_init_nodes); 
-    camera_info_sub_ = this->create_subscription<sensor_msgs::msg::CameraInfo>(camera_info_topic_, 1, update_camera_info);
+    image_transport::ImageTransport it(this->shared_from_this());
+    image_transport::Subscriber opencv_mask_sub = it.subscribe("/mask_with_occlusion", 10, std::bind(&TrackDLONode::update_opencv_mask, this, _1));
+    init_nodes_sub_ = this->create_subscription<sensor_msgs::msg::PointCloud2>("/trackdlo/init_nodes", 1, std::bind(&TrackDLONode::update_init_nodes, this, _1)); 
+    camera_info_sub_ = this->create_subscription<sensor_msgs::msg::CameraInfo>(camera_info_topic_, 1, std::bind(&TrackDLONode::update_camera_info, this, _1));
 
     message_filters::Subscriber<sensor_msgs::msg::Image> image_sub(this, rgb_topic_);
     message_filters::Subscriber<sensor_msgs::msg::Image> depth_sub(this, depth_topic_);
@@ -103,6 +104,24 @@ void TrackDLONode::setup()
     typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::msg::Image, sensor_msgs::msg::Image> SyncPolicy;
     // Synchronizer
     message_filters::Synchronizer<SyncPolicy> sync(SyncPolicy(10), image_sub, depth_sub);
+
+    // Publishers
+    int pub_queue_size = 30; 
+    image_transport::Publisher mask_pub = it.advertise("/trackdlo/mask", pub_queue_size);
+    image_transport::Publisher tracking_img_pub = it.advertise("/trackdlo/results_img", pub_queue_size); 
+    pc_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/trackdlo/filtered_pointcloud", pub_queue_size);
+    RCLCPP_INFO(this->get_logger(), "Publishing to '%s'", pc_pub_->get_topic_name());
+    results_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("/trackdlo/results_marker", pub_queue_size);
+    RCLCPP_INFO(this->get_logger(), "Publishing to '%s'", results_pub_->get_topic_name());
+    guide_nodes_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("/trackdlo/guide_nodes", pub_queue_size);
+    RCLCPP_INFO(this->get_logger(), "Publishing to '%s'", guide_nodes_pub_->get_topic_name());
+    corr_priors_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("/trackdlo/corr_priors", pub_queue_size);
+    RCLCPP_INFO(this->get_logger(), "Publishing to '%s'", corr_priors_pub_->get_topic_name());
+    // trackdlo point cloud topic
+    result_pc_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/trackdlo/results_pc", pub_queue_size);
+    RCLCPP_INFO(this->get_logger(), "Publishing to '%s'", result_pc_pub_->get_topic_name());
+    self_occluded_pc_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/trackdlo/self_occluded_pc", pub_queue_size);
+    RCLCPP_INFO(this->get_logger(), "Publishing to '%s'", self_occluded_pc_pub_->get_topic_name());
 
     // Callback function for aligned messages
     sync.registerCallback<std::function<void(const sensor_msgs::msg::Image::ConstPtr&, 
@@ -129,36 +148,12 @@ void TrackDLONode::setup()
             tracking_img_pub.publish(tracking_img);
         }
     );
-
-    // Publishers
-    int pub_queue_size = 30; 
-    image_transport::Publisher mask_pub = it.advertise("/trackdlo/mask", pub_queue_size);
-    image_transport::Publisher tracking_img_pub = it.advertise("/trackdlo/results_img", pub_queue_size); 
-    pc_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/trackdlo/filtered_pointcloud", pub_queue_size);
-    RCLCPP_INFO(this->get_logger(), "Publishing to '%s'", pc_pub_->get_topic_name());
-    results_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("/trackdlo/results_marker", pub_queue_size);
-    RCLCPP_INFO(this->get_logger(), "Publishing to '%s'", results_pub_->get_topic_name());
-    guide_nodes_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("/trackdlo/guide_nodes", pub_queue_size);
-    RCLCPP_INFO(this->get_logger(), "Publishing to '%s'", guide_nodes_pub_->get_topic_name());
-    corr_priors_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("/trackdlo/corr_priors", pub_queue_size);
-    RCLCPP_INFO(this->get_logger(), "Publishing to '%s'", corr_priors_pub_->get_topic_name());
-    // trackdlo point cloud topic
-    result_pc_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/trackdlo/results_pc", pub_queue_size);
-    self_occluded_pc_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/trackdlo/self_occluded_pc", pub_queue_size);
-
-
-    // publisher for publishing outgoing messages
-    //publisher_ = this->create_publisher<std_msgs::msg::Int32>("~/output", 10);
-    //RCLCPP_INFO(this->get_logger(), "Publishing to '%s'", publisher_->get_topic_name());
-
-    // timer for repeatedly invoking a callback
-    //timer_ = this->create_wall_timer(std::chrono::duration<double>(1.0), std::bind(&TrackDLO::timerCallback, this));
 }
 
 void TrackDLONode::update_opencv_mask(const sensor_msgs::msg::Image::ConstPtr& opencv_mask_msg) {
-    occlusion_mask = cv_bridge::toCvShare(opencv_mask_msg, "bgr8")->image; // SAME
-    if (!occlusion_mask.empty()) {
-        updated_opencv_mask = true;
+    occlusion_mask_ = cv_bridge::toCvShare(opencv_mask_msg, "bgr8")->image; // SAME
+    if (!occlusion_mask_.empty()) {
+        updated_opencv_mask_ = true;
     }
 }
 
@@ -168,17 +163,17 @@ void TrackDLONode::update_init_nodes(const sensor_msgs::msg::PointCloud2::ConstP
     pcl::PointCloud<pcl::PointXYZRGB> cloud_xyz;
     pcl::fromPCLPointCloud2(*cloud, cloud_xyz);
 
-    init_nodes = cloud_xyz.getMatrixXfMap().topRows(3).transpose().cast<double>();
-    received_init_nodes = true;
+    init_nodes_ = cloud_xyz.getMatrixXfMap().topRows(3).transpose().cast<double>();
+    received_init_nodes_ = true;
     //init_nodes_sub.shutdown(); TODO
 }
 
 void TrackDLONode::update_camera_info(const sensor_msgs::msg::CameraInfo::ConstPtr& cam_msg) {
     auto P = cam_msg->p;
     for (int i = 0; i < P.size(); i ++) {
-        proj_matrix(i/4, i%4) = P[i];
+        proj_matrix_(i/4, i%4) = P[i];
     }
-    received_proj_matrix = true;
+    received_proj_matrix_ = true;
     //camera_info_sub.shutdown(); TODO
 }
 
@@ -226,19 +221,19 @@ sensor_msgs::msg::Image::Ptr TrackDLONode::Callback(const sensor_msgs::msg::Imag
     if (!initialized_) {
         //std::cout<< "Not initialized!, received_init_nodes is: " << received_init_nodes << " and received_proj_matrix is: " << received_proj_matrix << std::endl;
         if (received_init_nodes_ && received_proj_matrix_) {
-            tracker_ = std::make_shared<trackdlo::TrackDLO>(init_nodes.rows(), visibility_threshold_, beta_, lambda_, alpha_, k_vis_, mu_, max_iter_, tol_, beta_pre_proc_, lambda_pre_proc_, lle_weight_);
+            tracker_ = std::make_shared<trackdlo::TrackDLO>(init_nodes_.rows(), visibility_threshold_, beta_, lambda_, alpha_, k_vis_, mu_, max_iter_, tol_, beta_pre_proc_, lambda_pre_proc_, lle_weight_);
             sigma2_ = 0.001;
 
             // record geodesic coord
             double cur_sum = 0;
-            for (int i = 0; i < init_nodes.rows()-1; i ++) {
-                cur_sum += (init_nodes.row(i+1) - init_nodes.row(i)).norm();
+            for (int i = 0; i < init_nodes_.rows()-1; i ++) {
+                cur_sum += (init_nodes_.row(i+1) - init_nodes_.row(i)).norm();
                 converted_node_coord_.push_back(cur_sum);
             }
 
-            tracker_.initialize_nodes(init_nodes);
-            tracker_.initialize_geodesic_coord(converted_node_coord_);
-            Y_ = init_nodes.replicate(1, 1);
+            tracker_->initialize_nodes(init_nodes_);
+            tracker_->initialize_geodesic_coord(converted_node_coord_);
+            Y_ = init_nodes_.replicate(1, 1);
 
             initialized_ = true;
         }
@@ -266,10 +261,10 @@ sensor_msgs::msg::Image::Ptr TrackDLONode::Callback(const sensor_msgs::msg::Imag
         // update cur image for visualization
         Mat cur_image;
         Mat occlusion_mask_gray;
-        if (updated_opencv_mask) {
-            cv::cvtColor(occlusion_mask, occlusion_mask_gray, cv::COLOR_BGR2GRAY);
+        if (updated_opencv_mask_) {
+            cv::cvtColor(occlusion_mask_, occlusion_mask_gray, cv::COLOR_BGR2GRAY);
             cv::bitwise_and(mask_without_occlusion_block, occlusion_mask_gray, mask);
-            cv::bitwise_and(cur_image_orig, occlusion_mask, cur_image);
+            cv::bitwise_and(cur_image_orig, occlusion_mask_, cur_image);
         }
         else {
             mask_without_occlusion_block.copyTo(mask);
@@ -292,14 +287,14 @@ sensor_msgs::msg::Image::Ptr TrackDLONode::Callback(const sensor_msgs::msg::Imag
         for (int i = 0; i < mask.rows; i ++) {
             for (int j = 0; j < mask.cols; j ++) {
                 // for text label (visualization)
-                if (updated_opencv_mask && !simulated_occlusion && occlusion_mask_gray.at<uchar>(i, j) == 0) {
+                if (updated_opencv_mask_ && !simulated_occlusion && occlusion_mask_gray.at<uchar>(i, j) == 0) {
                     occlusion_corner_i = i;
                     occlusion_corner_j = j;
                     simulated_occlusion = true;
                 }
 
                 // update the other corner of occlusion mask (visualization)
-                if (updated_opencv_mask && occlusion_mask_gray.at<uchar>(i, j) == 0) {
+                if (updated_opencv_mask_ && occlusion_mask_gray.at<uchar>(i, j) == 0) {
                     occlusion_corner_i_2 = i;
                     occlusion_corner_j_2 = j;
                 }
@@ -309,10 +304,10 @@ sensor_msgs::msg::Image::Ptr TrackDLONode::Callback(const sensor_msgs::msg::Imag
                     pcl::PointXYZRGB point;
                     double pixel_x = static_cast<double>(j);
                     double pixel_y = static_cast<double>(i);
-                    double cx = proj_matrix(0, 2);
-                    double cy = proj_matrix(1, 2);
-                    double fx = proj_matrix(0, 0);
-                    double fy = proj_matrix(1, 1);
+                    double cx = proj_matrix_(0, 2);
+                    double cy = proj_matrix_(1, 2);
+                    double fx = proj_matrix_(0, 0);
+                    double fy = proj_matrix_(1, 1);
                     double pc_z = cur_depth.at<uint16_t>(i, j) / 1000.0;
 
                     point.x = (pixel_x - cx) * pc_z / fx;
@@ -333,7 +328,7 @@ sensor_msgs::msg::Image::Ptr TrackDLONode::Callback(const sensor_msgs::msg::Imag
         pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr cloudPtr(cur_pc.makeShared());
         pcl::VoxelGrid<pcl::PointXYZRGB> sor;
         sor.setInputCloud (cloudPtr);
-        sor.setLeafSize (downsample_leaf_size, downsample_leaf_size, downsample_leaf_size);
+        sor.setLeafSize (downsample_leaf_size_, downsample_leaf_size_, downsample_leaf_size_);
         sor.filter(cur_pc_downsampled);
 
         MatrixXd X = cur_pc_downsampled.getMatrixXfMap().topRows(3).transpose().cast<double>();
@@ -345,7 +340,7 @@ sensor_msgs::msg::Image::Ptr TrackDLONode::Callback(const sensor_msgs::msg::Imag
         // log time
         time_diff = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - cur_time_cb).count() / 1000.0;
         RCLCPP_INFO_STREAM(rclcpp::get_logger("rclcpp"), "Before tracking step: " + std::to_string(time_diff) + " ms");
-        pre_proc_total += time_diff;
+        pre_proc_total_ += time_diff;
         cur_time = std::chrono::high_resolution_clock::now();
 
         // calculate node visibility
@@ -392,7 +387,7 @@ sensor_msgs::msg::Image::Ptr TrackDLONode::Callback(const sensor_msgs::msg::Imag
         MatrixXd Y_h = Y_.replicate(1, 1);
         Y_h.conservativeResize(Y_h.rows(), Y_h.cols()+1);
         Y_h.col(Y_h.cols()-1) = MatrixXd::Ones(Y_h.rows(), 1);
-        MatrixXd image_coords_mask = (proj_matrix * Y_h.transpose()).transpose();
+        MatrixXd image_coords_mask = (proj_matrix_ * Y_h.transpose()).transpose();
 
         std::vector<int> visible_nodes = {};
         std::vector<int> self_occluded_nodes = {};
@@ -409,7 +404,7 @@ sensor_msgs::msg::Image::Ptr TrackDLONode::Callback(const sensor_msgs::msg::Imag
 
             // only add to visible nodes if did not overlap with existing edges
             if (projected_edges.at<uchar>(row_1, col_1) == 0) {
-                if (shortest_node_pt_dists[idx] <= visibility_threshold) {
+                if (shortest_node_pt_dists[idx] <= visibility_threshold_) {
                     if (std::find(visible_nodes.begin(), visible_nodes.end(), idx) == visible_nodes.end()) {
                         visible_nodes.push_back(idx);
                     }
@@ -421,7 +416,7 @@ sensor_msgs::msg::Image::Ptr TrackDLONode::Callback(const sensor_msgs::msg::Imag
 
             // do not consider adjacent nodes directly on top of each other
             if (projected_edges.at<uchar>(row_2, col_2) == 0) {
-                if (shortest_node_pt_dists[idx+1] <= visibility_threshold) {
+                if (shortest_node_pt_dists[idx+1] <= visibility_threshold_) {
                     if (std::find(visible_nodes.begin(), visible_nodes.end(), idx+1) == visible_nodes.end()) {
                         visible_nodes.push_back(idx+1);
                     }
@@ -453,7 +448,7 @@ sensor_msgs::msg::Image::Ptr TrackDLONode::Callback(const sensor_msgs::msg::Imag
             {
                 visible_nodes_extended.push_back(visible_nodes[i]);
                 // extend visible nodes
-                if (fabs(converted_node_coord[visible_nodes[i+1]] - converted_node_coord[visible_nodes[i]]) <= d_vis_) {
+                if (fabs(converted_node_coord_[visible_nodes[i+1]] - converted_node_coord_[visible_nodes[i]]) <= d_vis_) {
                     for (int j = 1; j < visible_nodes[i+1] - visible_nodes[i]; j ++) {
                         visible_nodes_extended.push_back(visible_nodes[i] + j);
                     }
@@ -466,10 +461,10 @@ sensor_msgs::msg::Image::Ptr TrackDLONode::Callback(const sensor_msgs::msg::Imag
         MatrixXd Y_0 = Y_.replicate(1, 1);
         
         // step tracker
-        tracker_.tracking_step(X, visible_nodes, visible_nodes_extended, proj_matrix, mask.rows, mask.cols);
-        Y_ = tracker_.get_tracking_result();
-        guide_nodes = tracker_.get_guide_nodes();
-        priors = tracker_.get_correspondence_pairs();
+        tracker_->tracking_step(X, visible_nodes, visible_nodes_extended, proj_matrix_, mask.rows, mask.cols);
+        Y_ = tracker_->get_tracking_result();
+        guide_nodes = tracker_->get_guide_nodes();
+        priors = tracker_->get_correspondence_pairs();
 
         // log time
         time_diff = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - cur_time).count() / 1000.0;
@@ -496,7 +491,7 @@ sensor_msgs::msg::Image::Ptr TrackDLONode::Callback(const sensor_msgs::msg::Imag
         MatrixXd nodes_h = Y_.replicate(1, 1);
         nodes_h.conservativeResize(nodes_h.rows(), nodes_h.cols()+1);
         nodes_h.col(nodes_h.cols()-1) = MatrixXd::Ones(nodes_h.rows(), 1);
-        MatrixXd image_coords = (proj_matrix * nodes_h.transpose()).transpose();
+        MatrixXd image_coords = (proj_matrix_ * nodes_h.transpose()).transpose();
 
         Mat tracking_img;
         tracking_img = 0.5*cur_image_orig + 0.5*cur_image;
@@ -548,7 +543,7 @@ sensor_msgs::msg::Image::Ptr TrackDLONode::Callback(const sensor_msgs::msg::Imag
         }
 
         // add text
-        if (updated_opencv_mask && simulated_occlusion) {
+        if (updated_opencv_mask_ && simulated_occlusion) {
             cv::putText(tracking_img, "occlusion", cv::Point(occlusion_corner_j, occlusion_corner_i-10), cv::FONT_HERSHEY_DUPLEX, 1.2, cv::Scalar(0, 0, 240), 2);
         }
 
@@ -852,7 +847,7 @@ MatrixXd TrackDLO::calc_LLE_weights(int k, MatrixXd X) {
         MatrixXd wi = (Gi_inv * ones_col_vec) / (ones_row_vec * Gi_inv * ones_col_vec).value();
         MatrixXd wi_T = wi.transpose();
 
-        for (long unsigned int c = 0; c < indices.size(); c ++) {
+        for (size_t c = 0; c < indices.size(); c ++) {
             W(i, indices[c]) = wi_T(c);
         }
     }
@@ -981,7 +976,7 @@ bool TrackDLO::cpd_lle(MatrixXd X_orig,
         for (int m = 0; m < M; m ++) {
             // for each node in Y, determine a point in X closest to it
             // for P_vis calculations
-            double shortest_dist = 10000;
+            double shortest_dist = 10000.0;
             for (int n = 0; n < N; n ++) {
                 diff_xy(m, n) = (Y.row(m) - X.row(n)).squaredNorm();
                 double dist = (Y.row(m) - X.row(n)).norm();
