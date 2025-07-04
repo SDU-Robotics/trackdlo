@@ -1,6 +1,6 @@
 #pragma once
 
-#include "trackdlo.h"
+#include <trackdlo/trackdlo.h>
 
 #ifndef UTILS_H
 #define UTILS_H
@@ -27,7 +27,7 @@ MatrixXd sort_pts (MatrixXd Y_0);
 
 std::vector<MatrixXd> line_sphere_intersection (MatrixXd point_A, MatrixXd point_B, MatrixXd sphere_center, double radius);
 
-visualization_msgs::MarkerArray MatrixXd2MarkerArray (MatrixXd Y,
+visualization_msgs::msg::MarkerArray MatrixXd2MarkerArray (MatrixXd Y,
                                                       std::string marker_frame, 
                                                       std::string marker_ns, 
                                                       std::vector<float> node_color, 
@@ -38,7 +38,7 @@ visualization_msgs::MarkerArray MatrixXd2MarkerArray (MatrixXd Y,
                                                       std::vector<float> occluded_node_color = {},
                                                       std::vector<float> occluded_line_color = {});
 
-visualization_msgs::MarkerArray MatrixXd2MarkerArray (std::vector<MatrixXd> Y,
+visualization_msgs::msg::MarkerArray MatrixXd2MarkerArray (std::vector<MatrixXd> Y,
                                                       std::string marker_frame, 
                                                       std::string marker_ns,  
                                                       std::vector<float> node_color, 

@@ -1,6 +1,6 @@
-#include "../include/utils.h"
-#include "../include/trackdlo.h"
-#include "../include/evaluator.h"
+#include <trackdlo/utils.h>
+#include <trackdlo/trackdlo.h>
+#include <trackdlo/evaluator.h>
 
 #include <iostream>
 #include <fstream>
@@ -9,6 +9,8 @@
 using Eigen::MatrixXd;
 using Eigen::RowVectorXd;
 using cv::Mat;
+
+namespace trackdlo {
 
 evaluator::evaluator () {}
 evaluator::evaluator (int length, int trial, int pct_occlusion, std::string alg, int bag_file, std::string save_location, 
@@ -339,3 +341,4 @@ double evaluator::compute_error (MatrixXd Y_track, MatrixXd Y_true) {
     
     return cur_frame_error;
 }
+} // namespace trackdlo 
