@@ -1,9 +1,68 @@
 trackdlo:
   ros__parameters:
-    camera_info_topic: "lulz"
-    param: 1.0
+    # Camera related parameters
+    camera_info_topic: "/camera/camera/aligned_depth_to_color/camera_info"
+    rgb_topic: "/camera/camera/color/image_raw"
+    depth_topic: "/camera/camera/aligned_depth_to_color/image_raw"
+    result_frame_id: "camera_color_optical_frame"
+
+    # HSV color segmentation
+    hsv_threshold_upper_limit: "130 255 255"
+    hsv_threshold_lower_limit: "90 90 30"
+
+    # --- TrackDLO parameters
+    num_of_nodes: 50
+
+    # beta and lambda: MCT weights. the larger they are, the more rigid the object becomes
+    beta: 0.35
+    lambda: 50000.0
+
+    # alpha: the alignment strength 
+    alpha: 3.0
+
+    # mu: ranges from 0 to 1, large mu indicates the point cloud is noisy
+    mu: 0.1
+
+    # max_iter: the maximum number of iterations the EM loop undergoes before termination 
+    max_iter: 50
+
+    # tol: EM optimization convergence tolerance
+    tol: 0.0002
+
+    # k_vis: the strength of visibility information's effect on membership probability computation
+    k_vis: 50.0
+
+    # d_vis: the max geodesic distance between two adjacent visible nodes for the nodes between them to be considered visible
+    d_vis: 0.06
+
+    # visibility_threshold (tau_vis): the max distance a node can be away from the current point cloud to be considered visible 
+    visibility_threshold: 0.008
+
+    # dlo_pixel_width (w): the approximate dlo width when projected onto 2D 
+    dlo_pixel_width: 40
+
+    # below are parameters for the GLTP registration during pre-processing
+    beta_pre_proc: 3.0
+    lambda_pre_proc: 1.0
+    lle_weight: 10.0
+
+    downsample_leaf_size: 0.008
+    multi_color_dlo: False
+
 
 init_tracker:
   ros__parameters:
-    camera_info_topic: "lulz"
-    param: 1.0
+    # Camera related parameters
+    camera_info_topic: "/camera/camera/aligned_depth_to_color/camera_info"
+    rgb_topic: "/camera/camera/color/image_raw"
+    depth_topic: "/camera/camera/aligned_depth_to_color/image_raw"
+    result_frame_id: "camera_color_optical_frame"
+
+     # HSV color segmentation
+    hsv_threshold_upper_limit: "130 255 255"
+    hsv_threshold_lower_limit: "90 90 30"
+
+    num_of_nodes: 50
+    multi_color_dlo: False
+    visualize_initialization_process: False
+    

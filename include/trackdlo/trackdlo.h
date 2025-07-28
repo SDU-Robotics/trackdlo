@@ -215,7 +215,7 @@ class TrackDLONode : public rclcpp::Node
     double k_vis_;
     double d_vis_;
     double visibility_threshold_;
-    double dlo_pixel_width_;
+    int dlo_pixel_width_;
     double beta_pre_proc_;
     double lambda_pre_proc_;
     double lle_weight_;
