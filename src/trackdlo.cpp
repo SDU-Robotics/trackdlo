@@ -93,13 +93,15 @@ void TrackDLONode::setup()
     }
 
     // Subcriptions
-    image_transport::ImageTransport it(this->shared_from_this());
+
+    rclcpp::Node::SharedPtr node = rclcpp::Node::make_shared(this->get_name(), this->get_node_options());
+    image_transport::ImageTransport it(node);
     image_transport::Subscriber opencv_mask_sub = it.subscribe("/mask_with_occlusion", 10, std::bind(&TrackDLONode::update_opencv_mask, this, _1));
     init_nodes_sub_ = this->create_subscription<sensor_msgs::msg::PointCloud2>("/trackdlo/init_nodes", 1, std::bind(&TrackDLONode::update_init_nodes, this, _1)); 
     camera_info_sub_ = this->create_subscription<sensor_msgs::msg::CameraInfo>(camera_info_topic_, 1, std::bind(&TrackDLONode::update_camera_info, this, _1));
 
-    message_filters::Subscriber<sensor_msgs::msg::Image> image_sub(this, rgb_topic_);
-    message_filters::Subscriber<sensor_msgs::msg::Image> depth_sub(this, depth_topic_);
+    message_filters::Subscriber<sensor_msgs::msg::Image> image_sub(node, rgb_topic_);
+    message_filters::Subscriber<sensor_msgs::msg::Image> depth_sub(node, depth_topic_);
     // Synchronizer policy
     typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::msg::Image, sensor_msgs::msg::Image> SyncPolicy;
     // Synchronizer
