@@ -48,8 +48,8 @@ class TrackerInitializer(Node):
         self.depth_topic = '/camera/camera/aligned_depth_to_color/image_raw'
         self.result_frame_id = 'camera_color_optical_frame'
         self.visualize_initialization_process = False
-        self.hsv_threshold_upper_limit = "30 255 255"
-        self.hsv_threshold_lower_limit = "10 130 48"
+        self.hsv_threshold_upper_limit = "179 255 255"
+        self.hsv_threshold_lower_limit = "0 118 26"
 
         upper_array = self.hsv_threshold_upper_limit.split(' ')
         lower_array = self.hsv_threshold_lower_limit.split(' ')
@@ -118,10 +118,12 @@ class TrackerInitializer(Node):
 
         #cur_image = from_ros_msg(rgb) 
         #cur_image = self.bridge.imgmsg_to_cv2(rgb, desired_encoding='bgr8')
+
         cur_image = ros2_numpy.numpify(rgb)  
+        #cur_image = self.bridge.imgmsg_to_cv2(rgb, desired_encoding='bgr8')
         hsv_image = cv2.cvtColor(cur_image.copy(), cv2.COLOR_RGB2HSV)
 
-       # cv2.imshow('init frame lulz', cur_image)
+        #cv2.imshow('Initial image', cur_image)
         #cv2.waitKey(0)
 
         print("self.hsv_threshold_upper_limit:", self.hsv_threshold_upper_limit)

@@ -1,5 +1,5 @@
-#include <message_filters/sync_policies/approximate_time.h>
-#include <message_filters/synchronizer.h>
+#include <message_filters/subscriber.h>
+#include <message_filters/time_synchronizer.h>
 #include <trackdlo/trackdlo.h>
 #include <trackdlo/utils.h>
 
@@ -11,11 +11,11 @@ using cv::Mat;
 using Eigen::MatrixXd;
 using Eigen::RowVectorXd;
 using std::placeholders::_1;
+using std::placeholders::_2;
 
 namespace trackdlo
 {
-
-  TrackDLONode::TrackDLONode(std::shared_ptr<TrackDLO> trackdlo) : Node("tracker_node"), tracker_(trackdlo)
+  TrackDLONode::TrackDLONode(std::shared_ptr<TrackDLO> trackdlo) : Node("trackdlo_node"), tracker_(trackdlo)
   {
     // --- Load parameters
     // Camera related parameters
@@ -41,9 +41,6 @@ namespace trackdlo
     this->declare_and_load_parameter("lambda_pre_proc", lambda_pre_proc_, "parameter for the GLTP registration during pre-processing", true);
     this->declare_and_load_parameter("lle_weight", lle_weight_, "parameter for the GLTP registration during pre-processing", true);
     this->declare_and_load_parameter("downsample_leaf_size", downsample_leaf_size_, "parameter for the GLTP registration during pre-processing", true);
-
-    // Set up subscribers, publishers, etc. to configure the node
-    this->setup();
   }
 
   void TrackDLONode::setup()
@@ -102,24 +99,23 @@ namespace trackdlo
     }
 
     // Subcriptions
-
-    rclcpp::Node::SharedPtr node = rclcpp::Node::make_shared(this->get_name(), this->get_node_options());
-    image_transport::ImageTransport it(node);
-    image_transport::Subscriber opencv_mask_sub = it.subscribe("/mask_with_occlusion", 10, std::bind(&TrackDLONode::update_opencv_mask, this, _1));
+    it_ = std::make_shared<image_transport::ImageTransport>(shared_from_this());
+    opencv_mask_sub_ = it_->subscribe("/mask_with_occlusion", 10, std::bind(&TrackDLONode::update_opencv_mask, this, _1));
     init_nodes_sub_ = this->create_subscription<sensor_msgs::msg::PointCloud2>("/trackdlo/init_nodes", 1, std::bind(&TrackDLONode::update_init_nodes, this, _1));
     camera_info_sub_ = this->create_subscription<sensor_msgs::msg::CameraInfo>(camera_info_topic_, 1, std::bind(&TrackDLONode::update_camera_info, this, _1));
 
-    message_filters::Subscriber<sensor_msgs::msg::Image> image_sub(node, rgb_topic_);
-    message_filters::Subscriber<sensor_msgs::msg::Image> depth_sub(node, depth_topic_);
-    // Synchronizer policy
-    typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::msg::Image, sensor_msgs::msg::Image> SyncPolicy;
-    // Synchronizer
-    message_filters::Synchronizer<SyncPolicy> sync(SyncPolicy(10), image_sub, depth_sub);
+    image_sub_ = std::make_shared<message_filters::Subscriber<sensor_msgs::msg::Image>>(shared_from_this(), rgb_topic_);
+    depth_sub_ = std::make_shared<message_filters::Subscriber<sensor_msgs::msg::Image>>(shared_from_this(), depth_topic_);
+
+    // Initialize synchronizer
+    sync_ = std::make_shared<message_filters::Synchronizer<sync_policy_>>(sync_policy_(10), *image_sub_, *depth_sub_);
 
     // Publishers
     int pub_queue_size = 30;
-    image_transport::Publisher mask_pub = it.advertise("/trackdlo/mask", pub_queue_size);
-    image_transport::Publisher tracking_img_pub = it.advertise("/trackdlo/results_img", pub_queue_size);
+    mask_pub_ = it_->advertise("/trackdlo/mask", pub_queue_size);
+    RCLCPP_INFO(this->get_logger(), "Publishing to '%s'", mask_pub_.getTopic().c_str());
+    tracking_img_pub_ = it_->advertise("/trackdlo/results_img", pub_queue_size);
+    RCLCPP_INFO(this->get_logger(), "Publishing to '%s'", tracking_img_pub_.getTopic().c_str());
     pc_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/trackdlo/filtered_pointcloud", pub_queue_size);
     RCLCPP_INFO(this->get_logger(), "Publishing to '%s'", pc_pub_->get_topic_name());
     results_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("/trackdlo/results_marker", pub_queue_size);
@@ -135,7 +131,7 @@ namespace trackdlo
     RCLCPP_INFO(this->get_logger(), "Publishing to '%s'", self_occluded_pc_pub_->get_topic_name());
 
     // Callback function for aligned messages
-    sync.registerCallback<std::function<void(
+    sync_.get()->registerCallback<std::function<void(
         const sensor_msgs::msg::Image::ConstPtr&,
         const sensor_msgs::msg::Image::ConstPtr&,
         const std::shared_ptr<const message_filters::NullType>,
@@ -156,7 +152,7 @@ namespace trackdlo
             const std::shared_ptr<const message_filters::NullType> var7)
         {
           sensor_msgs::msg::Image::Ptr tracking_img = Callback(img_msg, depth_msg);
-          tracking_img_pub.publish(tracking_img);
+          tracking_img_pub_.publish(tracking_img);
         });
   }
 
@@ -236,9 +232,9 @@ namespace trackdlo
 
     if (!initialized_)
     {
-      // std::cout<< "Not initialized!, received_init_nodes is: " <<
-      // received_init_nodes << " and received_proj_matrix is: "
-      // << received_proj_matrix << std::endl;
+      std::cout<< "Not initialized!, received_init_nodes is: " <<
+       received_init_nodes_ << " and received_proj_matrix is: "
+       << received_proj_matrix_ << std::endl;
       if (received_init_nodes_ && received_proj_matrix_)
       {
         tracker_ = std::make_shared<trackdlo::TrackDLO>(init_nodes_.rows(), visibility_threshold_, beta_, lambda_, alpha_, k_vis_, mu_, max_iter_, tol_, beta_pre_proc_, lambda_pre_proc_, lle_weight_);
@@ -1914,7 +1910,10 @@ int main(int argc, char* argv[])
 {
   rclcpp::init(argc, argv);
   std::shared_ptr<trackdlo::TrackDLO> trackdlo = std::make_shared<trackdlo::TrackDLO>(50);
-  rclcpp::spin(std::make_shared<trackdlo::TrackDLONode>(trackdlo));
+  auto node = std::make_shared<trackdlo::TrackDLONode>(trackdlo);
+  // Set up subscribers, publishers, etc. to configure the node
+  node->setup();
+  rclcpp::spin(node);
   rclcpp::shutdown();
 
   return 0;

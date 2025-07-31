@@ -176,8 +176,9 @@ def extract_connected_skeleton (visualize_process, mask, img_scale=10, seg_lengt
                 break
     
     # skeletonization
-    result = skeletonize(mask, method='zha')
-    gray = cv2.cvtColor(result.copy(), cv2.COLOR_BGR2GRAY)
+    result = skeletonize(mask, method='lee')
+    gray = (result.astype(np.uint8)) * 255
+    gray = cv2.cvtColor(gray.copy(), cv2.COLOR_BGR2GRAY)
     gray[gray > 100] = 255
     print('Finished skeletonization. Traversing skeleton contours...')
 
@@ -387,6 +388,10 @@ def extract_connected_skeleton (visualize_process, mask, img_scale=10, seg_lengt
     cost_matrix[-2, :] = 1000
     # prevent matching with itself
     cost_matrix[matrix_size-2:matrix_size, matrix_size-2:matrix_size] = 100000
+
+    if np.isnan(cost_matrix).any():
+        print("ERROR! cost matrix contained NaN values, setting cost matrix to zero!")
+        cost_matrix = np.zeros((matrix_size, matrix_size))
 
     row_idx, col_idx = linear_sum_assignment(cost_matrix)
     cur_idx = col_idx[row_idx[-1]]
