@@ -1,26 +1,44 @@
 <launch>
 
-  <include file="$(find realsense2_camera)/launch/rs_camera.launch">
-    <arg name="json_file_path" value="$(find trackdlo)/config/preset_decimation_4.0_depth_step_100.json" />
+  <include file="$(find-pkg-share realsense2_camera)/launch/rs_launch.py">
+    <arg name="json_file_path" value="$(find-pkg-share trackdlo)/config/preset_decimation_4.0_depth_step_100.json" />
     <arg name="publish_tf" value="false" />
+    <!--
     <arg name="filters" value="pointcloud,temporal,decimation" />
+    MISSING pointcloud argument - JUST ENABLE POINTCLOUD (SEE further down) SEE ROS1: https://dev.intelrealsense.com/docs/pointcloud-visualization AND ROS2: https://dev.intelrealsense.com/docs/ros2-pointcloud-examples
+    THE ONE LINE ABOVE IS REPLACED BY THE TWO LINES BELOW
+    -->
+    <arg name="temporal_filter.enable" value="true" />
+    <arg name="decimation_filter.enable" value="true" />
+    <!--
     <arg name="depth_fps" value="15" />
     <arg name="depth_height" value="720" />
     <arg name="depth_width" value="1280" />
+    THE THREE LINES ABOVE IS REPLACED BY THE ONE LINE BELOW
+    -->
+    <arg name="depth_module.depth_profile" value="1280x720x30" />
+    <!--
     <arg name="color_fps" value="15" />
     <arg name="color_height" value="720" />
     <arg name="color_width" value="1280" />
-    <arg name="align_depth" value="true" />
-    <arg name="ordered_pc" value="true" />
+    THE THREE LINES ABOVE IS REPLACED BY THE ONE LINE BELOW
+    -->
+    <arg name="rgb_camera.color_profile" value="1280x720x30" />
+    <arg name="align_depth.enable" value="true" />
+    <arg name="pointcloud.enable" value="true" />
+    <arg name="pointcloud.ordered_pc" value="true" />
   </include>
 
-  <node pkg="tf" type="static_transform_publisher" name="base_link_to_camera_color_optical_frame_tf" args="0.5308947503950723 0.030109485611943067 0.5874 -0.7071068 0.7071068 0 0 base_link camera_color_optical_frame 10" />
-  <node pkg="tf" type="static_transform_publisher" name="camera_color_optical_frame_to_camera_color_frame_tf" args="0 0 0 0.5 -0.5 0.5 0.5 camera_color_optical_frame camera_color_frame 10" />
-  <node pkg="tf" type="static_transform_publisher" name="camera_color_frame_to_camera_link_tf" args="-0.000351057737134 -0.0148385819048 -0.000117231989861 0.00429561594501 0.000667857821099 -0.00226634810679 0.999987959862 camera_color_optical_frame camera_color_frame 10" />
-  <node pkg="tf" type="static_transform_publisher" name="camera_link_to_camera_depth_frame_tf" args="0 0 0 0 0.0 0.0 1.0 camera_color_optical_frame camera_color_frame 10" />
-  <node pkg="tf" type="static_transform_publisher" name="camera_depth_frame_to_camera_depth_optical_frame_tf" args="0 0 0 -0.5 0.5 -0.5 0.5 camera_depth_frame camera_depth_optical_frame 10" />
+  <!-- SEE ROS1: http://wiki.ros.org/tf#static_transform_publisher -->
+  <!-- SEE ROS2: https://docs.ros.org/en/jazzy/Tutorials/Intermediate/Tf2/Writing-A-Tf2-Static-Broadcaster-Py.html#the-proper-way-to-publish-static-transforms -->
+  <!-- MISSING PERIODE - value was 10 - SEE: http://wiki.ros.org/tf2/Tutorials/Writing%20a%20tf2%20static%20broadcaster%20%28C%2B%2B%29 -->
+  <node pkg="tf2_ros" exec="static_transform_publisher" name="base_link_to_camera_color_optical_frame_tf"           args="--x  0.5308947503950723 --y  0.030109485611943067 --z  0.5874            --qx -0.7071068        --qy  0.7071068         --qz  0                --qw 0              --frame-id base_link                  --child-frame-id camera_color_optical_frame" />
+  <node pkg="tf2_ros" exec="static_transform_publisher" name="camera_color_optical_frame_to_camera_color_frame_tf"  args="--x  0                  --y  0                    --z  0                 --qx  0.5              --qy -0.5               --qz  0.5              --qw 0.5            --frame-id camera_color_optical_frame --child-frame-id camera_color_frame" />
+  <node pkg="tf2_ros" exec="static_transform_publisher" name="camera_color_frame_to_camera_link_tf"                 args="--x -0.000351057737134  --y -0.0148385819048      --z -0.000117231989861 --qx  0.00429561594501 --qy  0.000667857821099 --qz -0.00226634810679 --qw 0.999987959862 --frame-id camera_color_optical_frame --child-frame-id camera_color_frame" />
+  <node pkg="tf2_ros" exec="static_transform_publisher" name="camera_link_to_camera_depth_frame_tf"                 args="--x  0                  --y  0                    --z  0                 --qx  0                --qy  0.0               --qz  0.0              --qw 1.0            --frame-id camera_color_optical_frame --child-frame-id camera_color_frame" />
+  <node pkg="tf2_ros" exec="static_transform_publisher" name="camera_depth_frame_to_camera_depth_optical_frame_tf"  args="--x  0                  --y  0                    --z  0                 --qx -0.5              --qy  0.5               --qz -0.5              --qw 0.5            --frame-id camera_depth_frame         --child-frame-id camera_depth_optical_frame" />
 
   <!-- tracking rviz file -->
-  <node type="rviz" name="rviz" pkg="rviz" args="-d $(find trackdlo)/rviz/tracking.rviz" />
+  <node exec="rviz2" name="rviz" pkg="rviz2" args="-d $(find-pkg-share trackdlo)/rviz/tracking.rviz"/>
 
 </launch>

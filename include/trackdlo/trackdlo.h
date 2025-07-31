@@ -21,6 +21,8 @@
 
 #include <message_filters/subscriber.h>
 #include <message_filters/time_synchronizer.h>
+#include <message_filters/sync_policies/approximate_time.h>
+#include <message_filters/synchronizer.h>
 
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <pcl_conversions/pcl_conversions.h>
@@ -143,6 +145,11 @@ class TrackDLONode : public rclcpp::Node
     TrackDLONode(std::shared_ptr<TrackDLO> trackdlo);
 
     /**
+     * @brief Sets up subscribers, publishers, etc. to configure the node
+     */
+    void setup();
+
+    /**
      * @brief Declares and loads a ROS parameter
      *
      * @param name name
@@ -169,10 +176,6 @@ class TrackDLONode : public rclcpp::Node
     sensor_msgs::msg::Image::Ptr Callback(const sensor_msgs::msg::Image::ConstPtr& image_msg, const sensor_msgs::msg::Image::ConstPtr& depth_msg);
 
   private:
-    /**
-     * @brief Sets up subscribers, publishers, etc. to configure the node
-     */
-    void setup();
 
     void update_opencv_mask(const sensor_msgs::msg::Image::ConstPtr& opencv_mask_msg);
 
@@ -226,12 +229,22 @@ class TrackDLONode : public rclcpp::Node
     double pub_data_total_;
     int frames_;
 
+    std::shared_ptr<image_transport::ImageTransport> it_;
+    image_transport::Subscriber opencv_mask_sub_;
+    std::shared_ptr<message_filters::Subscriber<sensor_msgs::msg::Image>> image_sub_;
+    std::shared_ptr<message_filters::Subscriber<sensor_msgs::msg::Image>> depth_sub_;
+    // Synchronizer policy
+    typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::msg::Image, sensor_msgs::msg::Image> sync_policy_;
+    std::shared_ptr<message_filters::Synchronizer<sync_policy_>> sync_;
+    image_transport::Publisher mask_pub_;
+    image_transport::Publisher tracking_img_pub_; 
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pc_pub_;
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr results_pub_;
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr guide_nodes_pub_;
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr corr_priors_pub_;
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr self_occluded_pc_pub_;
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr result_pc_pub_;
+    
 
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr init_nodes_sub_;
     rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr camera_info_sub_;
