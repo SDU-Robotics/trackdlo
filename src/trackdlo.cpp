@@ -2,6 +2,7 @@
 #include <message_filters/time_synchronizer.h>
 #include <trackdlo/trackdlo.h>
 #include <trackdlo/utils.h>
+#include <trackdlo/trackdlo_parameters.hpp>
 
 #include <opencv2/core.hpp>
 #include <opencv2/highgui.hpp>
@@ -15,36 +16,39 @@ using std::placeholders::_2;
 
 namespace trackdlo
 {
-  TrackDLONode::TrackDLONode(std::shared_ptr<TrackDLO> trackdlo) : Node("trackdlo_node"), tracker_(trackdlo)
+  TrackDLONode::TrackDLONode(std::shared_ptr<TrackDLO> trackdlo) : Node("trackdlo"), tracker_(trackdlo)
   {
-    // --- Load parameters
-    // Camera related parameters
-    this->declare_and_load_parameter("camera_info_topic", camera_info_topic_, "TODO", true);
-    this->declare_and_load_parameter("rgb_topic", rgb_topic_, "TODO", true);
-    this->declare_and_load_parameter("depth_topic", depth_topic_, "TODO", true);
-    this->declare_and_load_parameter("result_frame_id", result_frame_id_, "TODO", true);
-    // HSV color segmentation parameters
-    this->declare_and_load_parameter("hsv_threshold_lower_limit", hsv_threshold_lower_limit_, "TODO", true);
-    this->declare_and_load_parameter("hsv_threshold_upper_limit", hsv_threshold_upper_limit_, "TODO", true);
-    // TrackDLO parameters
-    this->declare_and_load_parameter("beta", beta_, "beta: MCT weight. the larger it is, the more rigid the object becomes", true);
-    this->declare_and_load_parameter("lambda", lambda_, "lambda: MCT weight. the larger it is, the more rigid the object becomes", true);
-    this->declare_and_load_parameter("alpha", alpha_, "alpha: the alignment strength", true);
-    this->declare_and_load_parameter("mu", mu_, "mu: ranges from 0 to 1, large mu indicates the point cloud is noisy", true);
-    this->declare_and_load_parameter("max_iter", max_iter_, "max_iter: the maximum number of iterations the EM loop undergoes before termination", true);
-    this->declare_and_load_parameter("tol", tol_, "tol: EM optimization convergence tolerance", true);
-    this->declare_and_load_parameter("k_vis", k_vis_, "k_vis: the strength of visibility information's effect on membership probability computation", true);
-    this->declare_and_load_parameter("d_vis", d_vis_, "d_vis: the max geodesic distance between two adjacent visible nodes for the nodes between them to be considered visible", true);
-    this->declare_and_load_parameter("visibility_threshold", visibility_threshold_, "visibility_threshold (tau_vis): the max distance a node can be away from the current point cloud to be considered visible", true);
-    this->declare_and_load_parameter("dlo_pixel_width", dlo_pixel_width_, "dlo_pixel_width (w): the approximate dlo width when projected onto 2D", true);
-    this->declare_and_load_parameter("beta_pre_proc", beta_pre_proc_, "parameter for the GLTP registration during pre-processing", true);
-    this->declare_and_load_parameter("lambda_pre_proc", lambda_pre_proc_, "parameter for the GLTP registration during pre-processing", true);
-    this->declare_and_load_parameter("lle_weight", lle_weight_, "parameter for the GLTP registration during pre-processing", true);
-    this->declare_and_load_parameter("downsample_leaf_size", downsample_leaf_size_, "parameter for the GLTP registration during pre-processing", true);
   }
 
   void TrackDLONode::setup()
   {
+     // --- Load parameters
+    auto param_listener = std::make_shared<trackdlo::ParamListener>(this->shared_from_this());
+    auto params = param_listener->get_params();
+    // Camera related parameters
+    camera_info_topic_ = params.camera_info_topic;
+    rgb_topic_ = params.rgb_topic;
+    depth_topic_ = params.depth_topic;
+    result_frame_id_ = params.result_frame_id;
+    // HSV color segmentation parameters
+    hsv_threshold_lower_limit_ = params.hsv_threshold_lower_limit;
+    hsv_threshold_upper_limit_ = params.hsv_threshold_upper_limit;
+    // TrackDLO parameters
+    beta_ = params.beta_mct;
+    lambda_ = params.lambda_mct;
+    alpha_ = params.alpha;
+    mu_ = params.mu;
+    max_iter_ = params.max_iter;
+    tol_ = params.tol;
+    k_vis_ = params.k_vis;
+    d_vis_ = params.d_vis;
+    visibility_threshold_ = params.visibility_threshold;
+    dlo_pixel_width_ = params.dlo_pixel_width;
+    beta_pre_proc_ = params.beta_pre_proc;
+    lambda_pre_proc_ = params.lambda_pre_proc;
+    lle_weight_ = params.lle_weight;
+    downsample_leaf_size_ = params.downsample_leaf_size;
+
     // Init some variables
     initialized_ = false;
     received_init_nodes_ = false;

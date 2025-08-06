@@ -12,9 +12,9 @@ from launch_ros.actions import Node, SetParameter
 def generate_launch_description():
 
     args = [
-        DeclareLaunchArgument("name", default_value="trackdlo_node", description="node name"),
+        DeclareLaunchArgument("name", default_value="trackdlo", description="node name"),
         DeclareLaunchArgument("namespace", default_value="", description="node namespace"),
-        DeclareLaunchArgument("params", default_value=os.path.join(get_package_share_directory("trackdlo"), "config", "trackdlo_params.yml"), description="path to parameter file"),
+        DeclareLaunchArgument("params", default_value=os.path.join(get_package_share_directory("trackdlo"), "config", "trackdlo_params.yaml"), description="path to parameter file"),
         DeclareLaunchArgument("log_level", default_value="info", description="ROS logging level (debug, info, warn, error, fatal)"),
         DeclareLaunchArgument("use_sim_time", default_value="false", description="use simulation clock")
     ]
@@ -25,7 +25,6 @@ def generate_launch_description():
             executable="trackdlo",
             namespace=LaunchConfiguration("namespace"),
             name=LaunchConfiguration("name"),
-            parameters=[LaunchConfiguration("params")],
             arguments=["--ros-args", "--log-level", LaunchConfiguration("log_level")],
             output="screen",
             emulate_tty=True
@@ -34,8 +33,7 @@ def generate_launch_description():
             package="trackdlo",
             executable="initialize.py",
             output="screen",
-            emulate_tty=True,
-            parameters=[LaunchConfiguration("params")]
+            emulate_tty=True
         )
     ]
 

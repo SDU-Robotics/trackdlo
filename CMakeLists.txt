@@ -14,6 +14,7 @@ find_package(ament_cmake REQUIRED)
 find_package(ament_cmake_python REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclpy REQUIRED)
+find_package(generate_parameter_library REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
@@ -26,6 +27,14 @@ find_package(Eigen3 3.3 REQUIRED NO_MODULE)
 find_package(PCL 1.8 REQUIRED COMPONENTS common io filters visualization features kdtree)
 
 set(TARGET_NAME trackdlo)
+
+generate_parameter_library(trackdlo_parameters
+  config/trackdlo_params.yaml # path to input yaml file
+)
+
+generate_parameter_module(trackdlo_parameters_py
+  config/trackdlo_params.yaml # path to input yaml file
+)
 
 add_executable(${TARGET_NAME} src/trackdlo.cpp src/utils.cpp)
 
@@ -47,9 +56,15 @@ ament_target_dependencies(${TARGET_NAME}
   OpenCV
 )
 
-install(TARGETS ${TARGET_NAME}
-  DESTINATION lib/${PROJECT_NAME}
+target_link_libraries(${TARGET_NAME}
+  trackdlo_parameters
 )
+
+install(TARGETS ${TARGET_NAME} trackdlo_parameters
+  DESTINATION lib/${PROJECT_NAME}
+  EXPORT ${PROJECT_NAME}Targets
+)
+ament_export_targets(${PROJECT_NAME}Targets HAS_LIBRARY_TARGET)
 
 install(DIRECTORY launch
   DESTINATION share/${PROJECT_NAME}
