@@ -22,6 +22,42 @@ This repository contains the TrackDLO Robot Operating System (ROS2) package. The
 
 ## Get Started
 
+### ROS2 Quick instructions
+
+#### Dependencies
+
+Follow the instructions from [realsense-ros](https://github.com/IntelRealSense/realsense-ros) package to install the camera driver and the realsense-ros package.
+
+Use rosdep to install package dependencies:
+
+    sudo rosdep init
+    rosdep update
+    rosdep install --from-paths src -y --ignore-src
+
+Next install
+
+    sudo apt install -y ros-jazzy-generate-parameter-library
+
+Furthermore install:
+
+	 pip3 install ros2-numpy
+
+Note! you can replace `jazzy` with your distribution eg. `humble`.
+
+#### Run
+
+Start the Intel RealSense camera with:
+
+    ros2 launch trackdlo realsense_node.launch 
+
+Now launch the trackdlo and the initialize node with:
+
+    ros2 launch trackdlo trackdlo_launch.py
+
+Finally to visualize the output use rviz2:
+
+    ros2 run rviz2 rviz2
+
 The [requirements and run instructions](https://github.com/RMDLO/trackdlo/blob/master/docs/RUN.md) page provides information on package installation and usage.
 
 ## Learn More
