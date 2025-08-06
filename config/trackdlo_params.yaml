@@ -1,0 +1,146 @@
+trackdlo:
+  # Camera related parameters
+  camera_info_topic:
+    type: string
+    default_value: "/camera/camera/aligned_depth_to_color/camera_info"
+    read_only: true
+
+  rgb_topic:
+    type: string
+    default_value: "/camera/camera/color/image_raw"
+    read_only: true
+
+  depth_topic:
+    type: string
+    default_value: "/camera/camera/aligned_depth_to_color/image_raw"
+    read_only: true    
+
+  result_frame_id:
+    type: string
+    default_value: "camera_color_optical_frame"
+    read_only: true   
+
+  # HSV color segmentation
+  hsv_threshold_upper_limit:
+    type: string
+    default_value: "179 255 255"
+    read_only: true
+   
+  hsv_threshold_lower_limit: 
+    type: string
+    default_value: "0 118 26"
+    read_only: true
+
+  # --- TrackDLO parameters
+  num_of_nodes:
+    type: int
+    default_value: 50
+    read_only: true
+
+  # beta and lambda: MCT weights. the larger they are, the more rigid the object becomes
+  beta_mct:
+    type: double
+    default_value: 0.35
+    read_only: true
+    description: "beta: MCT weight. the larger it is, the more rigid the object becomes"
+  
+  lambda_mct:
+    type: double
+    default_value: 50000.0
+    read_only: true
+    description: "lambda: MCT weight. the larger it is, the more rigid the object becomes"
+   
+  # alpha: the alignment strength 
+  alpha:
+    type: double
+    default_value: 3.0
+    read_only: true
+    description: "alpha: the alignment strength"
+   
+  # mu: ranges from 0 to 1, large mu indicates the point cloud is noisy
+  mu: 
+    type: double
+    default_value: 0.1
+    read_only: true
+    description: "mu: ranges from 0 to 1, large mu indicates the point cloud is noisy"
+
+  # max_iter: the maximum number of iterations the EM loop undergoes before termination 
+  max_iter: 
+    type: int
+    default_value: 100
+    read_only: true
+    description: "max_iter: the maximum number of iterations the EM loop undergoes before termination"
+  
+  # tol: EM optimization convergence tolerance
+  tol:
+    type: double
+    default_value: 0.0002
+    read_only: true
+    description: "tol: EM optimization convergence tolerance"
+   
+  # k_vis: the strength of visibility information's effect on membership probability computation
+  k_vis: 
+    type: double
+    default_value: 50.0
+    read_only: true
+    description: "k_vis: the strength of visibility information's effect on membership probability computation"
+
+  # d_vis: the max geodesic distance between two adjacent visible nodes for the nodes between them to be considered visible
+  d_vis: 
+    type: double
+    default_value: 0.06
+    read_only: true
+    description: "d_vis: the max geodesic distance between two adjacent visible nodes for the nodes between them to be considered visible"
+
+  # visibility_threshold (tau_vis): the max distance a node can be away from the current point cloud to be considered visible 
+  visibility_threshold: 
+    type: double
+    default_value: 0.008
+    read_only: true
+    description: "visibility_threshold (tau_vis): the max distance a node can be away from the current point cloud to be considered visible"
+
+  # dlo_pixel_width (w): the approximate dlo width when projected onto 2D 
+  dlo_pixel_width: 
+    type: int
+    default_value: 40
+    read_only: true
+    description: "dlo_pixel_width (w): the approximate dlo width when projected onto 2D"
+
+  # below are parameters for the GLTP registration during pre-processing
+  beta_pre_proc: 
+    type: double
+    default_value: 3.0
+    read_only: true
+    description: "beta_pre_proc: a parameter for the GLTP registration during pre-processing"
+  
+  lambda_pre_proc: 
+    type: double
+    default_value: 1.0
+    read_only: true
+    description: "lambda_pre_proc: a parameter for the GLTP registration during pre-processing"
+
+  lle_weight:
+    type: double
+    default_value: 10.0
+    read_only: true
+    description: "lle_weight: a parameter for the GLTP registration during pre-processing"
+
+  downsample_leaf_size: 
+    type: double
+    default_value: 0.008
+    read_only: true
+    description: "downsample_leaf_size: a parameter for the GLTP registration during pre-processing"
+
+  multi_color_dlo: 
+    type: bool
+    default_value: false
+    read_only: true
+    description: "Whether to use multi color dlo or not"
+
+  visualize_initialization_process:
+    type: bool
+    default_value: false
+    read_only: true
+    description: "Whether to visualize the init process or not (for debugging)"
+
+    

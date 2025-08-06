@@ -2,6 +2,7 @@
 
 import rclpy
 import ros2_numpy
+from trackdlo.trackdlo_parameters_py import trackdlo
 from cv_bridge import CvBridge
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
 from rclpy.node import Node
@@ -31,25 +32,18 @@ class TrackerInitializer(Node):
         super().__init__('init_tracker')
         self.proj_matrix = None
 
-        # self.num_of_nodes = self.get_parameter_or('num_of_nodes', 50)
-        # self.multi_color_dlo = self.get_parameter_or('multi_color_dlo', False)
-        # self.camera_info_topic = self.get_parameter_or('camera_info_topic', '/camera/camera/aligned_depth_to_color/camera_info')
-        # self.rgb_topic = self.get_parameter_or('rgb_topic', '/camera/camera/color/image_raw')
-        # self.depth_topic = self.get_parameter_or('depth_topic', '/camera/camera/aligned_depth_to_color/image_raw')
-        # self.result_frame_id = self.get_parameter_or('result_frame_id', 'camera_color_optical_frame')
-        # self.visualize_initialization_process = self.get_parameter_or('visualize_initialization_process', False)
-        # self.hsv_threshold_upper_limit = self.get_parameter_or('hsv_threshold_upper_limit', "30 255 255")
-        # self.hsv_threshold_lower_limit = self.get_parameter_or('hsv_threshold_lower_limit', "10 130 48")
+        param_listener = trackdlo.ParamListener(self)
+        params = param_listener.get_params()
 
-        self.num_of_nodes = 50
-        self.multi_color_dlo =  False
-        self.camera_info_topic = '/camera/camera/aligned_depth_to_color/camera_info'
-        self.rgb_topic = '/camera/camera/color/image_raw'
-        self.depth_topic = '/camera/camera/aligned_depth_to_color/image_raw'
-        self.result_frame_id = 'camera_color_optical_frame'
-        self.visualize_initialization_process = False
-        self.hsv_threshold_upper_limit = "179 255 255"
-        self.hsv_threshold_lower_limit = "0 118 26"
+        self.num_of_nodes = params.num_of_nodes
+        self.multi_color_dlo =  params.multi_color_dlo
+        self.camera_info_topic = params.camera_info_topic
+        self.rgb_topic = params.rgb_topic
+        self.depth_topic = params.depth_topic
+        self.result_frame_id = params.result_frame_id
+        self.visualize_initialization_process = params.visualize_initialization_process
+        self.hsv_threshold_upper_limit = params.hsv_threshold_upper_limit
+        self.hsv_threshold_lower_limit = params.hsv_threshold_lower_limit
 
         upper_array = self.hsv_threshold_upper_limit.split(' ')
         lower_array = self.hsv_threshold_lower_limit.split(' ')
