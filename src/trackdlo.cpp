@@ -2,11 +2,14 @@
 #include <message_filters/time_synchronizer.h>
 #include <trackdlo/trackdlo.h>
 #include <trackdlo/utils.h>
+#include <rclcpp/logging.hpp>
 #include <trackdlo/trackdlo_parameters.hpp>
 
 #include <opencv2/core.hpp>
 #include <opencv2/highgui.hpp>
 #include <opencv2/imgcodecs.hpp>
+#include <iomanip>
+#include <rclcpp/rclcpp.hpp>
 
 using cv::Mat;
 using Eigen::MatrixXd;
@@ -105,15 +108,16 @@ namespace trackdlo
     // Subcriptions
     it_ = std::make_shared<image_transport::ImageTransport>(shared_from_this());
     opencv_mask_sub_ = it_->subscribe("/mask_with_occlusion", 10, std::bind(&TrackDLONode::update_opencv_mask, this, _1));
-    init_nodes_sub_ = this->create_subscription<sensor_msgs::msg::PointCloud2>("/trackdlo/init_nodes", 1, std::bind(&TrackDLONode::update_init_nodes, this, _1));
-    camera_info_sub_ = this->create_subscription<sensor_msgs::msg::CameraInfo>(camera_info_topic_, 1, std::bind(&TrackDLONode::update_camera_info, this, _1));
+    init_nodes_sub_ = this->create_subscription<sensor_msgs::msg::PointCloud2>("/trackdlo/init_nodes", rclcpp::QoS(rclcpp::KeepLast(5)).best_effort().durability_volatile(), std::bind(&TrackDLONode::update_init_nodes, this, _1));
+    camera_info_sub_ = this->create_subscription<sensor_msgs::msg::CameraInfo>(camera_info_topic_, rclcpp::QoS(rclcpp::KeepLast(5)).best_effort().durability_volatile(), std::bind(&TrackDLONode::update_camera_info, this, _1));
 
     image_sub_ = std::make_shared<message_filters::Subscriber<sensor_msgs::msg::Image>>(shared_from_this(), rgb_topic_);
     depth_sub_ = std::make_shared<message_filters::Subscriber<sensor_msgs::msg::Image>>(shared_from_this(), depth_topic_);
 
     // Initialize synchronizer
     sync_ = std::make_shared<message_filters::Synchronizer<sync_policy_>>(sync_policy_(10), *image_sub_, *depth_sub_);
-
+    sync_->setMaxIntervalDuration(rclcpp::Duration(0, 10000000));
+  
     // Publishers
     int pub_queue_size = 30;
     mask_pub_ = it_->advertise("/trackdlo/mask", pub_queue_size);
@@ -135,29 +139,7 @@ namespace trackdlo
     RCLCPP_INFO(this->get_logger(), "Publishing to '%s'", self_occluded_pc_pub_->get_topic_name());
 
     // Callback function for aligned messages
-    sync_.get()->registerCallback<std::function<void(
-        const sensor_msgs::msg::Image::ConstPtr&,
-        const sensor_msgs::msg::Image::ConstPtr&,
-        const std::shared_ptr<const message_filters::NullType>,
-        const std::shared_ptr<const message_filters::NullType>,
-        const std::shared_ptr<const message_filters::NullType>,
-        const std::shared_ptr<const message_filters::NullType>,
-        const std::shared_ptr<const message_filters::NullType>,
-        const std::shared_ptr<const message_filters::NullType>,
-        const std::shared_ptr<const message_filters::NullType>)>>(
-        [&](const sensor_msgs::msg::Image::ConstPtr& img_msg,
-            const sensor_msgs::msg::Image::ConstPtr& depth_msg,
-            const std::shared_ptr<const message_filters::NullType> var1,
-            const std::shared_ptr<const message_filters::NullType> var2,
-            const std::shared_ptr<const message_filters::NullType> var3,
-            const std::shared_ptr<const message_filters::NullType> var4,
-            const std::shared_ptr<const message_filters::NullType> var5,
-            const std::shared_ptr<const message_filters::NullType> var6,
-            const std::shared_ptr<const message_filters::NullType> var7)
-        {
-          sensor_msgs::msg::Image::Ptr tracking_img = Callback(img_msg, depth_msg);
-          tracking_img_pub_.publish(tracking_img);
-        });
+    sync_.get()->registerCallback(std::bind(&TrackDLONode::sync_callback, this, _1, _2));
   }
 
   void TrackDLONode::update_opencv_mask(const sensor_msgs::msg::Image::ConstPtr& opencv_mask_msg)
@@ -178,6 +160,7 @@ namespace trackdlo
 
     init_nodes_ = cloud_xyz.getMatrixXfMap().topRows(3).transpose().cast<double>();
     received_init_nodes_ = true;
+    init_nodes_sub_.reset();
     // init_nodes_sub.shutdown(); TODO
   }
 
@@ -189,6 +172,7 @@ namespace trackdlo
       proj_matrix_(i / 4, i % 4) = P[i];
     }
     received_proj_matrix_ = true;
+    camera_info_sub_.reset();
     // camera_info_sub.shutdown(); TODO
   }
 
@@ -226,13 +210,13 @@ namespace trackdlo
     return mask;
   }
 
-  sensor_msgs::msg::Image::Ptr TrackDLONode::Callback(const sensor_msgs::msg::Image::ConstPtr& image_msg, const sensor_msgs::msg::Image::ConstPtr& depth_msg)
+void TrackDLONode::sync_callback(const sensor_msgs::msg::Image::ConstSharedPtr& image_msg, const sensor_msgs::msg::Image::ConstSharedPtr& depth_msg)
   {
     Mat cur_image_orig = cv_bridge::toCvShare(image_msg, "bgr8")->image;
     Mat cur_depth = cv_bridge::toCvShare(depth_msg, depth_msg->encoding)->image;
 
     // will get overwritten later if intialized
-    sensor_msgs::msg::Image::Ptr tracking_img_msg = cv_bridge::CvImage(std_msgs::msg::Header(), "bgr8", cur_image_orig).toImageMsg();
+    sensor_msgs::msg::Image::SharedPtr tracking_img_msg = cv_bridge::CvImage(std_msgs::msg::Header(), "bgr8", cur_image_orig).toImageMsg();
 
     if (!initialized_)
     {
@@ -257,6 +241,7 @@ namespace trackdlo
         Y_ = init_nodes_.replicate(1, 1);
 
         initialized_ = true;
+        std::cout << "TrackDLO Initialized!" << std::endl;
       }
     }
     else
@@ -475,7 +460,7 @@ namespace trackdlo
         double y2 = row_2;
 
         cv::line(projected_edges, cv::Point(x1, y1), cv::Point(x2, y2), cv::Scalar(255, 255, 255),
-                 5);  // dlo_pixel_width
+                 dlo_pixel_width_);  // dlo_pixel_width
       }
 
       // sort visible nodes to preserve the original connectivity
@@ -505,10 +490,16 @@ namespace trackdlo
       MatrixXd Y_0 = Y_.replicate(1, 1);
 
       // step tracker
-      tracker_->tracking_step(X, visible_nodes, visible_nodes_extended, proj_matrix_, mask.rows, mask.cols);
-      Y_ = tracker_->get_tracking_result();
-      guide_nodes = tracker_->get_guide_nodes();
-      priors = tracker_->get_correspondence_pairs();
+      std::chrono::high_resolution_clock::time_point current_time = std::chrono::high_resolution_clock::now();
+      bool result = tracker_->tracking_step(X, visible_nodes, visible_nodes_extended, proj_matrix_, mask.rows, mask.cols);
+      double track_step_diff = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - current_time).count() / 1000.0;
+      RCLCPP_INFO_STREAM(rclcpp::get_logger("rclcpp"), "Tracking step took: " + std::to_string(track_step_diff) + " ms");
+      if(result == true)
+      {
+        Y_ = tracker_->get_tracking_result();
+        guide_nodes = tracker_->get_guide_nodes();
+        priors = tracker_->get_correspondence_pairs();
+      }
 
       // log time
       time_diff = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - cur_time).count() / 1000.0;
@@ -676,7 +667,7 @@ namespace trackdlo
       RCLCPP_INFO_STREAM(rclcpp::get_logger("rclcpp"), "Avg total: " + std::to_string((pre_proc_total_ + algo_total_ + pub_data_total_) / frames_) + " ms");
     }
 
-    return tracking_img_msg;
+    tracking_img_pub_.publish(tracking_img_msg);
   }
 
   template<typename T>
@@ -1792,8 +1783,12 @@ namespace trackdlo
     return node_pairs;
   }
 
-  void TrackDLO::tracking_step(MatrixXd X_orig, std::vector<int> visible_nodes, std::vector<int> visible_nodes_extended, MatrixXd proj_matrix, int img_rows, int img_cols)
+  bool TrackDLO::tracking_step(MatrixXd X_orig, std::vector<int> visible_nodes, std::vector<int> visible_nodes_extended, MatrixXd proj_matrix, int img_rows, int img_cols)
   {
+    RCLCPP_INFO_STREAM(rclcpp::get_logger("rclcpp"), "Num of visible nodes:" + std::to_string(visible_nodes.size()));
+    RCLCPP_INFO_STREAM(rclcpp::get_logger("rclcpp"), "Num of visible nodes extended:" + std::to_string(visible_nodes_extended.size()));
+    
+    auto start = std::chrono::high_resolution_clock::now();
     // variable initialization
     correspondence_priors_ = {};
     int state = 0;
@@ -1812,13 +1807,20 @@ namespace trackdlo
     {
       guide_nodes_ = Y_.replicate(1, 1);
     }
+    auto end = std::chrono::high_resolution_clock::now();
+    double time_taken = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+    std::cout << "Copy visible nodes vec to guide nodes, time taken: " << time_taken << std::endl;
 
+    start = std::chrono::high_resolution_clock::now();
     // determine DLO state: heading visible, tail visible, both visible, or both
     // occluded priors_vec should be the final output; priors_vec[i] = {index,
     // x, y, z}
     double sigma2_pre_proc = sigma2_;
     // pre-processing registration
     cpd_lle(X_orig, guide_nodes_, sigma2_pre_proc, beta_pre_proc_, lambda_pre_proc_, lle_weight_, mu_, max_iter_, tol_, true);
+    end = std::chrono::high_resolution_clock::now();
+    time_taken = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+    std::cout << " pre-processing registration, time taken: " << time_taken << std::endl;
 
     if (visible_nodes_extended.size() == Y_.rows())
     {
@@ -1887,7 +1889,7 @@ namespace trackdlo
     else
     {
       RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "Both ends occluded");
-
+      return false;
       // determine which node moved the least
       int alignment_node_idx = -1;
       double moved_dist = 999999;
@@ -1904,9 +1906,14 @@ namespace trackdlo
       // std::endl;
       correspondence_priors_ = traverse_euclidean(geodesic_coord_, guide_nodes_, visible_nodes_extended, 2, alignment_node_idx);
     }
-
+    
+    start = std::chrono::high_resolution_clock::now();
     // include_lle == false because we have no space to discuss it in the paper
     cpd_lle(X_orig, Y_, sigma2_, beta_, lambda_, lle_weight_, mu_, max_iter_, tol_, false, correspondence_priors_, alpha_, visible_nodes_extended, k_vis_, visibility_threshold_);
+    end = std::chrono::high_resolution_clock::now();
+    time_taken = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+    std::cout << "Final cpd_lle, time taken: " << time_taken << std::endl;
+    return true;
   }
 }  // namespace trackdlo
 

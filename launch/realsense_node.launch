@@ -32,13 +32,13 @@
   <!-- SEE ROS1: http://wiki.ros.org/tf#static_transform_publisher -->
   <!-- SEE ROS2: https://docs.ros.org/en/jazzy/Tutorials/Intermediate/Tf2/Writing-A-Tf2-Static-Broadcaster-Py.html#the-proper-way-to-publish-static-transforms -->
   <!-- MISSING PERIODE - value was 10 - SEE: http://wiki.ros.org/tf2/Tutorials/Writing%20a%20tf2%20static%20broadcaster%20%28C%2B%2B%29 -->
-  <node pkg="tf2_ros" exec="static_transform_publisher" name="base_link_to_camera_color_optical_frame_tf"           args="--x  0.5308947503950723 --y  0.030109485611943067 --z  0.5874            --qx -0.7071068        --qy  0.7071068         --qz  0                --qw 0              --frame-id base_link                  --child-frame-id camera_color_optical_frame" />
+  <node pkg="tf2_ros" exec="static_transform_publisher" name="base_link_to_camera_color_optical_frame_tf"           args="--x  -0.4868882122910381 --y  -0.9182058585760371 --z  0.6247075633606797            --qx -0.9750629449057566        --qy  0.004199065421725603         --qz  0.005171429516958865                --qw 0.2218284869849866              --frame-id base_link                  --child-frame-id camera_color_optical_frame" />
   <node pkg="tf2_ros" exec="static_transform_publisher" name="camera_color_optical_frame_to_camera_color_frame_tf"  args="--x  0                  --y  0                    --z  0                 --qx  0.5              --qy -0.5               --qz  0.5              --qw 0.5            --frame-id camera_color_optical_frame --child-frame-id camera_color_frame" />
   <node pkg="tf2_ros" exec="static_transform_publisher" name="camera_color_frame_to_camera_link_tf"                 args="--x -0.000351057737134  --y -0.0148385819048      --z -0.000117231989861 --qx  0.00429561594501 --qy  0.000667857821099 --qz -0.00226634810679 --qw 0.999987959862 --frame-id camera_color_optical_frame --child-frame-id camera_color_frame" />
   <node pkg="tf2_ros" exec="static_transform_publisher" name="camera_link_to_camera_depth_frame_tf"                 args="--x  0                  --y  0                    --z  0                 --qx  0                --qy  0.0               --qz  0.0              --qw 1.0            --frame-id camera_color_optical_frame --child-frame-id camera_color_frame" />
   <node pkg="tf2_ros" exec="static_transform_publisher" name="camera_depth_frame_to_camera_depth_optical_frame_tf"  args="--x  0                  --y  0                    --z  0                 --qx -0.5              --qy  0.5               --qz -0.5              --qw 0.5            --frame-id camera_depth_frame         --child-frame-id camera_depth_optical_frame" />
 
   <!-- tracking rviz file -->
-  <node exec="rviz2" name="rviz" pkg="rviz2" args="-d $(find-pkg-share trackdlo)/rviz/tracking.rviz"/>
+  <!--node exec="rviz2" name="rviz" pkg="rviz2" args="-d $(find-pkg-share trackdlo)/rviz/tracking.rviz"/-->
 
 </launch>
