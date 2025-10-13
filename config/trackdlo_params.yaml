@@ -23,12 +23,12 @@ trackdlo:
   # HSV color segmentation
   hsv_threshold_upper_limit:
     type: string
-    default_value: "179 255 255"
+    default_value: "18 255 255"
     read_only: true
    
   hsv_threshold_lower_limit: 
     type: string
-    default_value: "0 118 26"
+    default_value: "0 92 30"
     read_only: true
 
   # --- TrackDLO parameters
@@ -67,14 +67,14 @@ trackdlo:
   # max_iter: the maximum number of iterations the EM loop undergoes before termination 
   max_iter: 
     type: int
-    default_value: 100
+    default_value: 50
     read_only: true
     description: "max_iter: the maximum number of iterations the EM loop undergoes before termination"
   
   # tol: EM optimization convergence tolerance
   tol:
     type: double
-    default_value: 0.0002
+    default_value: 0.004 # 0.0002
     read_only: true
     description: "tol: EM optimization convergence tolerance"
    
@@ -88,21 +88,21 @@ trackdlo:
   # d_vis: the max geodesic distance between two adjacent visible nodes for the nodes between them to be considered visible
   d_vis: 
     type: double
-    default_value: 0.06
+    default_value: 0.02
     read_only: true
     description: "d_vis: the max geodesic distance between two adjacent visible nodes for the nodes between them to be considered visible"
 
   # visibility_threshold (tau_vis): the max distance a node can be away from the current point cloud to be considered visible 
   visibility_threshold: 
     type: double
-    default_value: 0.008
+    default_value: 0.01
     read_only: true
     description: "visibility_threshold (tau_vis): the max distance a node can be away from the current point cloud to be considered visible"
 
   # dlo_pixel_width (w): the approximate dlo width when projected onto 2D 
   dlo_pixel_width: 
     type: int
-    default_value: 40
+    default_value: 16
     read_only: true
     description: "dlo_pixel_width (w): the approximate dlo width when projected onto 2D"
 
@@ -127,7 +127,7 @@ trackdlo:
 
   downsample_leaf_size: 
     type: double
-    default_value: 0.008
+    default_value: 0.02 # 0.008
     read_only: true
     description: "downsample_leaf_size: a parameter for the GLTP registration during pre-processing"
 

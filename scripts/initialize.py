@@ -66,7 +66,7 @@ class TrackerInitializer(Node):
                     PointField(name='z', offset=8, datatype=PointField.FLOAT32, count=1),
                     PointField(name='rgba', offset=12, datatype=PointField.UINT32, count=1)]
 
-        self.pc_pub = self.create_publisher(PointCloud2, '/trackdlo/init_nodes', 10) 
+        self.pc_pub = self.create_publisher(PointCloud2, '/trackdlo/init_nodes', 10)
         self.results_pub = self.create_publisher(MarkerArray, '/trackdlo/init_nodes_markers', 10) 
 
         self.bridge = CvBridge()
@@ -104,8 +104,8 @@ class TrackerInitializer(Node):
         return data
 
     def callback(self, rgb, depth):
-        print("Initializing...")
-
+        #print("Initializing...")
+        init_time = time.time()
         # process rgb image
         # cur_image = ros_numpy.numpify(rgb) # ORIGINAL
         # hsv_image = cv2.cvtColor(cur_image.copy(), cv2.COLOR_RGB2HSV) # ORIGINAL
@@ -114,14 +114,12 @@ class TrackerInitializer(Node):
         #cur_image = self.bridge.imgmsg_to_cv2(rgb, desired_encoding='bgr8')
 
         cur_image = ros2_numpy.numpify(rgb)  
-        #cur_image = self.bridge.imgmsg_to_cv2(rgb, desired_encoding='bgr8')
+        #cur_image = self.bridge.imgmsg_to_cv2(rgb, desired_encoding='rgb8')
         hsv_image = cv2.cvtColor(cur_image.copy(), cv2.COLOR_RGB2HSV)
 
         #cv2.imshow('Initial image', cur_image)
         #cv2.waitKey(0)
 
-        print("self.hsv_threshold_upper_limit:", self.hsv_threshold_upper_limit)
-        print("self.hsv_threshold_lower_limit", self.hsv_threshold_lower_limit)
         # process depth image
         cur_depth = ros2_numpy.numpify(depth)
         #cur_depth = self.bridge.imgmsg_to_cv2(depth, desired_encoding='passthrough')
@@ -131,6 +129,8 @@ class TrackerInitializer(Node):
         if not self.multi_color_dlo:
             # color thresholding
             mask = cv2.inRange(hsv_image, self.lower, self.upper)
+            #cv2.imshow('mask image', mask)
+            #cv2.waitKey(0)
         else:
             # color thresholding
             mask, mask_tip = self.color_thresholding(hsv_image, cur_depth)
@@ -142,11 +142,12 @@ class TrackerInitializer(Node):
             # returns the pixel coord of points (in order). a list of lists
             img_scale = 1
             extracted_chains = extract_connected_skeleton(self.visualize_initialization_process, mask, img_scale=img_scale, seg_length=8, max_curvature=25)
+            #print('num of chains (django): ', extracted_chains)
 
             all_pixel_coords = []
             for chain in extracted_chains:
                 all_pixel_coords += chain
-            print('Finished extracting chains. Time taken:', time.time()-start_time)
+            #print('Finished extracting chains. Time taken:', time.time()-start_time)
 
             all_pixel_coords = np.array(all_pixel_coords) * img_scale
             all_pixel_coords = np.flip(all_pixel_coords, 1)
@@ -218,6 +219,7 @@ class TrackerInitializer(Node):
             self.header.stamp = self.get_clock().now().to_msg()
             converted_points = pcl2.create_cloud(self.header, self.fields, pc_colored_structured)
             self.pc_pub.publish(converted_points)
+            #print('Done with callback, Time taken:', time.time()-init_time)
         except Exception as e:
             self.get_logger().error(e)
             self.get_logger().error("Failed to extract splines.")

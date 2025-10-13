@@ -2,11 +2,23 @@ from skimage.morphology import skeletonize
 from scipy.optimize import linear_sum_assignment
 import cv2
 import numpy as np
+import time
 from PIL import Image, ImageFilter
 
 from visualization_msgs.msg import Marker
 from visualization_msgs.msg import MarkerArray
 from scipy.spatial.transform import Rotation as R
+
+
+def bounding_box(rect):
+    xs = [pt.x for pt in rect]
+    ys = [pt.y for pt in rect]
+    return min(xs), max(xs), min(ys), max(ys)
+
+def bbox_overlap(bbox1, bbox2):
+    return not (bbox1[1] < bbox2[0] or bbox1[0] > bbox2[1] or
+                bbox1[3] < bbox2[2] or bbox1[2] > bbox2[3])
+
 
 def pt2pt_dis_sq(pt1, pt2):
     return np.sum(np.square(pt1 - pt2))
@@ -112,6 +124,9 @@ def check_rect_overlap (rect1, rect2):
                 return overlap
     return overlap
 
+def safe_arccos(x):
+    return np.arccos(np.clip(x, -1.0, 1.0))
+
 # mode:
 #   0: start + start
 #   1: start + end
@@ -125,27 +140,27 @@ def compute_cost (chain1, chain2, w_e, w_c, mode):
     if mode == 0:
         # treat the second chain as needing to be reversed
         cost_euclidean = np.linalg.norm(chain1[0] - chain2[0])
-        cost_curvature_1 = np.arccos(np.dot(chain1[0] - chain2[0], chain1[1] - chain1[0]) / (np.linalg.norm(chain1[0] - chain1[1]) * cost_euclidean))
-        cost_curvature_2 = np.arccos(np.dot(chain1[0] - chain2[0], chain2[0] - chain2[1]) / (np.linalg.norm(chain2[0] - chain2[1]) * cost_euclidean))
+        cost_curvature_1 = safe_arccos(np.dot(chain1[0] - chain2[0], chain1[1] - chain1[0]) / (np.linalg.norm(chain1[0] - chain1[1]) * cost_euclidean))
+        cost_curvature_2 = safe_arccos(np.dot(chain1[0] - chain2[0], chain2[0] - chain2[1]) / (np.linalg.norm(chain2[0] - chain2[1]) * cost_euclidean))
         total_cost = w_e * cost_euclidean + w_c * (np.abs(cost_curvature_1) + np.abs(cost_curvature_2)) / 2.0
     # start + end
     elif mode == 1:
         cost_euclidean = np.linalg.norm(chain1[0] - chain2[-1])
-        cost_curvature_1 = np.arccos(np.dot(chain1[0] - chain2[-1], chain1[1] - chain1[0]) / (np.linalg.norm(chain1[0] - chain1[1]) * cost_euclidean))
-        cost_curvature_2 = np.arccos(np.dot(chain1[0] - chain2[-1], chain2[-1] - chain2[-2]) / (np.linalg.norm(chain2[-1] - chain2[-2]) * cost_euclidean))
+        cost_curvature_1 = safe_arccos(np.dot(chain1[0] - chain2[-1], chain1[1] - chain1[0]) / (np.linalg.norm(chain1[0] - chain1[1]) * cost_euclidean))
+        cost_curvature_2 = safe_arccos(np.dot(chain1[0] - chain2[-1], chain2[-1] - chain2[-2]) / (np.linalg.norm(chain2[-1] - chain2[-2]) * cost_euclidean))
         total_cost = w_e * cost_euclidean + w_c * (np.abs(cost_curvature_1) + np.abs(cost_curvature_2)) / 2.0
     # end + start
     elif mode == 2:
         cost_euclidean = np.linalg.norm(chain1[-1] - chain2[0])
-        cost_curvature_1 = np.arccos(np.dot(chain2[0] - chain1[-1], chain1[-1] - chain1[-2]) / (np.linalg.norm(chain1[-1] - chain1[-2]) * cost_euclidean))
-        cost_curvature_2 = np.arccos(np.dot(chain2[0] - chain1[-1], chain2[1] - chain2[0]) / (np.linalg.norm(chain2[0] - chain2[1]) * cost_euclidean))
+        cost_curvature_1 = safe_arccos(np.dot(chain2[0] - chain1[-1], chain1[-1] - chain1[-2]) / (np.linalg.norm(chain1[-1] - chain1[-2]) * cost_euclidean))
+        cost_curvature_2 = safe_arccos(np.dot(chain2[0] - chain1[-1], chain2[1] - chain2[0]) / (np.linalg.norm(chain2[0] - chain2[1]) * cost_euclidean))
         total_cost = w_e * cost_euclidean + w_c * (np.abs(cost_curvature_1) + np.abs(cost_curvature_2)) / 2.0
     # end + end
     else:
         # treat the second chain as needing to be reversed
         cost_euclidean = np.linalg.norm(chain1[-1] - chain2[-1])
-        cost_curvature_1 = np.arccos(np.dot(chain2[-1] - chain1[-1], chain1[-1] - chain1[-2]) / (np.linalg.norm(chain1[-1] - chain1[-2]) * cost_euclidean))
-        cost_curvature_2 = np.arccos(np.dot(chain2[-1] - chain1[-1], chain2[-2] - chain2[-1]) / (np.linalg.norm(chain2[-1] - chain2[-2]) * cost_euclidean))
+        cost_curvature_1 = safe_arccos(np.dot(chain2[-1] - chain1[-1], chain1[-1] - chain1[-2]) / (np.linalg.norm(chain1[-1] - chain1[-2]) * cost_euclidean))
+        cost_curvature_2 = safe_arccos(np.dot(chain2[-1] - chain1[-1], chain2[-2] - chain2[-1]) / (np.linalg.norm(chain2[-1] - chain2[-2]) * cost_euclidean))
         total_cost = w_e * cost_euclidean + w_c * (np.abs(cost_curvature_1) + np.abs(cost_curvature_2)) / 2.0
     
     if total_cost is np.nan or cost_curvature_1 is np.nan or cost_curvature_2 is np.nan:
@@ -159,14 +174,22 @@ def compute_cost (chain1, chain2, w_e, w_c, mode):
 # paper link: https://ieeexplore.ieee.org/abstract/document/9697357
 def extract_connected_skeleton (visualize_process, mask, img_scale=10, seg_length=3, max_curvature=30):  # note: mask is one channel
 
+    start_time = time.time()
+    mask = cv2.cvtColor(mask.copy(), cv2.COLOR_BGR2GRAY)
     # smooth image
-    im = Image.fromarray(mask)
-    smoothed_im = im.filter(ImageFilter.ModeFilter(size=15))
-    mask = np.array(smoothed_im)
+    #blur = cv2.blur(mask.copy(),(15,15))
+    #im = Image.fromarray(mask)
+    #smoothed_im = im.filter(ImageFilter.ModeFilter(size=15))
+    # Apply median blur (size must be odd)
 
-    # resize if necessary for better skeletonization performance
+    smoothed = cv2.medianBlur(mask, 15)
+    mask = np.array(smoothed)
+    #print('Finished smoothing', time.time()-start_time)
+    start_time = time.time()
+    # resize if necessary for betcleater skeletonization performance
     mask = cv2.resize(mask, (int(mask.shape[1]/img_scale), int(mask.shape[0]/img_scale)))
-
+    #print('Finished resize', time.time()-start_time)
+    start_time = time.time()
     if visualize_process:
         cv2.imshow('init frame', mask)
         while True:
@@ -174,13 +197,17 @@ def extract_connected_skeleton (visualize_process, mask, img_scale=10, seg_lengt
             if key == 27:  # escape
                 cv2.destroyAllWindows()
                 break
-    
+
     # skeletonization
-    result = skeletonize(mask, method='lee')
+    #input_img = cv2.cvtColor(mask.copy(), cv2.COLOR_BGR2GRAY)
+    result = skeletonize(mask, method='zhang')
+    #print('Finished skeletonize', time.time()-start_time)
+    start_time = time.time()
     gray = (result.astype(np.uint8)) * 255
-    gray = cv2.cvtColor(gray.copy(), cv2.COLOR_BGR2GRAY)
+    #gray = cv2.cvtColor(gray.copy(), cv2.COLOR_BGR2GRAY)
     gray[gray > 100] = 255
-    print('Finished skeletonization. Traversing skeleton contours...')
+    #print('Finished skeletonization. Traversing skeleton contours...', time.time()-start_time)
+    start_time = time.time()
 
     if visualize_process:
         cv2.imshow('after skeletonization', gray)
@@ -194,6 +221,9 @@ def extract_connected_skeleton (visualize_process, mask, img_scale=10, seg_lengt
     contours, _ = cv2.findContours(gray, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)[-2:]
 
     chains = []
+
+    #print('Finished find contours.', time.time()-start_time)
+    start_time = time.time()
 
     # for each object segment
     for a, contour in enumerate(contours):
@@ -259,8 +289,8 @@ def extract_connected_skeleton (visualize_process, mask, img_scale=10, seg_lengt
                 chain = []
                 cur_seg_start_point = None
 
-    print('Finished contour traversal. Pruning extracted chains...')
-
+    #print('Finished contour traversal. Pruning extracted chains...', time.time()-start_time)
+    start_time = time.time()
     if visualize_process:
         mask = np.zeros((gray.shape[0], gray.shape[1], 3), np.uint8)
         for chain in chains:
@@ -279,7 +309,7 @@ def extract_connected_skeleton (visualize_process, mask, img_scale=10, seg_lengt
     line_seg_to_rect_dict = {}
     rect_width = 3
     for chain in chains:
-        all_chain_length.append(np.sum(np.sqrt(np.sum(np.square(np.diff(np.array(chain), axis=0)), axis=1))))
+        all_chain_length.append(np.sum(np.linalg.norm(np.diff(np.array(chain), axis=0), axis=1)))
         for i in range (0, len(chain)-1):
             line_seg_to_rect_dict[(tuple(chain[i]), tuple(chain[i+1]))] = \
                 build_rect(Point_2D(chain[i][0], chain[i][1]), Point_2D(chain[i+1][0], chain[i+1][1]), rect_width)
@@ -288,6 +318,9 @@ def extract_connected_skeleton (visualize_process, mask, img_scale=10, seg_lengt
     sorted_idx = np.argsort(all_chain_length.copy())
     chains = np.asarray(chains, dtype=list)
     sorted_chains = chains[sorted_idx]
+
+    #print('[PRUNING] Finished sorting. continue Pruning...', time.time()-start_time)
+    start_time = time.time()
 
     pruned_chains = []
     for i in range (0, len(chains)):
@@ -304,6 +337,13 @@ def extract_connected_skeleton (visualize_process, mask, img_scale=10, seg_lengt
                 no_overlap = True
                 for k in range (0, len(cur_chain)-1):
                     rect_cur_seg = line_seg_to_rect_dict[(tuple(cur_chain[k]), tuple(cur_chain[k+1]))]
+
+                    # bounding box check
+                    bbox_cur = bounding_box(rect_cur_seg)
+                    bbox_test = bounding_box(rect_test_seg)
+                    if not bbox_overlap(bbox_cur, bbox_test):
+                        continue  # skip expensive check_rect_overlap
+
                     if check_rect_overlap(rect_cur_seg, rect_test_seg):
                         no_overlap = False
                         break
@@ -325,7 +365,7 @@ def extract_connected_skeleton (visualize_process, mask, img_scale=10, seg_lengt
         all_chain_length = []
         for chain in leftover_chains:
             if len(chain) != 0:
-                all_chain_length.append(np.sum(np.sqrt(np.sum(np.square(np.diff(np.array(chain), axis=0)), axis=1))))
+                all_chain_length.append(np.sum(np.linalg.norm(np.diff(np.array(chain), axis=0), axis=1)))
             else:
                 all_chain_length.append(0)
 
@@ -334,8 +374,9 @@ def extract_connected_skeleton (visualize_process, mask, img_scale=10, seg_lengt
         leftover_chains = np.asarray(leftover_chains, dtype=list)
         sorted_chains = leftover_chains[sorted_idx]
 
-    print('Finished pruning. Merging remaining chains...')
-    
+    #print('Finished pruning. Merging remaining chains...', time.time()-start_time)
+    start_time = time.time()
+
     if visualize_process:
         mask = np.zeros((gray.shape[0], gray.shape[1], 3), np.uint8)
         for chain in pruned_chains:
@@ -428,8 +469,8 @@ def extract_connected_skeleton (visualize_process, mask, img_scale=10, seg_lengt
             break
         cur_idx = next_idx
     
-    print('Finished merging.')
-    
+    #print('Finished merging.', time.time()-start_time)
+
     # visualization code for debug
     if visualize_process:
         mask = np.zeros((gray.shape[0], gray.shape[1], 3), np.uint8)

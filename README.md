@@ -36,7 +36,7 @@ Use rosdep to install package dependencies:
 
 Next install
 
-    sudo apt install -y ros-jazzy-generate-parameter-library
+    sudo apt install -y python-skimage ros-jazzy-generate-parameter-library ros-jazzy-tf-transformations ros-jazzy-pcl-ros ros-jazzy-cv-bridge
 
 Furthermore install:
 

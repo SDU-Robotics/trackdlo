@@ -9,7 +9,7 @@
 
 #include <rclcpp/rclcpp.hpp>
 #include <image_transport/image_transport.hpp>
-#include <cv_bridge/cv_bridge.h>
+#include <cv_bridge/cv_bridge.hpp>
 
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/features2d.hpp>
@@ -102,7 +102,7 @@ class TrackDLO
                   double k_vis = 0,
                   double visibility_threshold = 0.01);
 
-    void tracking_step(MatrixXd X_orig,
+    bool tracking_step(MatrixXd X_orig,
                       std::vector<int> visible_nodes,
                       std::vector<int> visible_nodes_extended,
                       MatrixXd proj_matrix,
@@ -173,7 +173,7 @@ class TrackDLONode : public rclcpp::Node
                                 const std::optional<double> &step_value = std::nullopt,
                                 const std::string &additional_constraints = "");
 
-    sensor_msgs::msg::Image::Ptr Callback(const sensor_msgs::msg::Image::ConstPtr& image_msg, const sensor_msgs::msg::Image::ConstPtr& depth_msg);
+    void sync_callback(const sensor_msgs::msg::Image::ConstSharedPtr& image_msg, const sensor_msgs::msg::Image::ConstSharedPtr& depth_msg);
 
   private:
 
