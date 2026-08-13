@@ -20,17 +20,6 @@ trackdlo:
     default_value: "camera_color_optical_frame"
     read_only: true   
 
-  # HSV color segmentation
-  hsv_threshold_upper_limit:
-    type: string
-    default_value: "18 255 255"
-    read_only: true
-   
-  hsv_threshold_lower_limit: 
-    type: string
-    default_value: "0 92 30"
-    read_only: true
-
   # --- TrackDLO parameters
   num_of_nodes:
     type: int

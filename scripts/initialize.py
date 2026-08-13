@@ -21,9 +21,14 @@ from visualization_msgs.msg import MarkerArray
 from scipy import interpolate
 
 from utils import extract_connected_skeleton, ndarray2MarkerArray
+from dlo_segmentation import DloSegmenter
 
 from sensor_msgs.msg import PointField
+from pathlib import Path
 import numpy as np
+
+PACKAGE_DIR = Path(__file__).resolve().parent
+DEFAULT_CHECKPOINT = PACKAGE_DIR / "segmentation_model" / "multiview_tracking_dlo_segmentation_model.pth"
 
 
 class TrackerInitializer(Node):
@@ -42,13 +47,6 @@ class TrackerInitializer(Node):
         self.depth_topic = params.depth_topic
         self.result_frame_id = params.result_frame_id
         self.visualize_initialization_process = params.visualize_initialization_process
-        self.hsv_threshold_upper_limit = params.hsv_threshold_upper_limit
-        self.hsv_threshold_lower_limit = params.hsv_threshold_lower_limit
-
-        upper_array = self.hsv_threshold_upper_limit.split(' ')
-        lower_array = self.hsv_threshold_lower_limit.split(' ')
-        self.upper = (int(upper_array[0]), int(upper_array[1]), int(upper_array[2]))
-        self.lower = (int(lower_array[0]), int(lower_array[1]), int(lower_array[2]))
 
         self.camera_info_sub = self.create_subscription(CameraInfo, self.camera_info_topic, self.camera_info_callback, 10)
         rclpy.spin_once(self)
@@ -81,22 +79,6 @@ class TrackerInitializer(Node):
         print(self.proj_matrix)
         self.destroy_subscription(self.camera_info_sub) 
 
-    def color_thresholding(self, hsv_image, cur_depth):
-        mask_dlo = cv2.inRange(hsv_image.copy(), self.lower, self.upper).astype('uint8')
-
-        # tape green
-        lower_green = (58, 130, 50)
-        upper_green = (90, 255, 89)
-        mask_green = cv2.inRange(hsv_image.copy(), lower_green, upper_green).astype('uint8')
-
-        # combine masks
-        mask = cv2.bitwise_or(mask_green.copy(), mask_dlo.copy())
-
-        # filter mask base on depth values
-        mask[cur_depth < 0.57*1000] = 0
-
-        return mask, mask_green
-
     def remove_duplicate_rows(self, array):
         _, idx = np.unique(array, axis=0, return_index=True)
         data = array[np.sort(idx)]
@@ -104,40 +86,21 @@ class TrackerInitializer(Node):
         return data
 
     def callback(self, rgb, depth):
-        #print("Initializing...")
-        init_time = time.time()
         # process rgb image
-        # cur_image = ros_numpy.numpify(rgb) # ORIGINAL
-        # hsv_image = cv2.cvtColor(cur_image.copy(), cv2.COLOR_RGB2HSV) # ORIGINAL
-
-        #cur_image = from_ros_msg(rgb) 
-        #cur_image = self.bridge.imgmsg_to_cv2(rgb, desired_encoding='bgr8')
-
         cur_image = ros2_numpy.numpify(rgb)  
-        #cur_image = self.bridge.imgmsg_to_cv2(rgb, desired_encoding='rgb8')
-        hsv_image = cv2.cvtColor(cur_image.copy(), cv2.COLOR_RGB2HSV)
 
         #cv2.imshow('Initial image', cur_image)
         #cv2.waitKey(0)
 
         # process depth image
         cur_depth = ros2_numpy.numpify(depth)
-        #cur_depth = self.bridge.imgmsg_to_cv2(depth, desired_encoding='passthrough')
-        #cur_depth = np.array(cur_depth, dtype=np.float32)
-        #cur_depth = cur_depth.astype(np.uint16)
 
-        if not self.multi_color_dlo:
-            # color thresholding
-            mask = cv2.inRange(hsv_image, self.lower, self.upper)
-            #cv2.imshow('mask image', mask)
-            #cv2.waitKey(0)
-        else:
-            # color thresholding
-            mask, mask_tip = self.color_thresholding(hsv_image, cur_depth)
+        # get mask using DloSegmenter
+        segmenter = DloSegmenter(DEFAULT_CHECKPOINT, device="cpu")
+        result = segmenter.segment(cur_image)
 
         try:
-            start_time = time.time()
-            mask = cv2.cvtColor(mask.copy(), cv2.COLOR_GRAY2BGR)
+            mask = cv2.cvtColor(result.mask.copy(), cv2.COLOR_GRAY2BGR)
 
             # returns the pixel coord of points (in order). a list of lists
             img_scale = 1
@@ -159,12 +122,6 @@ class TrackerInitializer(Node):
             cy = self.proj_matrix[1, 2]
             pixel_x = all_pixel_coords[:, 1]
             pixel_y = all_pixel_coords[:, 0]
-            # if the first mask value is not in the tip mask, reverse the pixel order
-            if self.multi_color_dlo:
-                pixel_value1 = mask_tip[pixel_y[-1],pixel_x[-1]]
-                if pixel_value1 == 255:
-                    pixel_x, pixel_y = pixel_x[::-1], pixel_y[::-1]
-
             pc_x = (pixel_x - cx) * pc_z / fx
             pc_y = (pixel_y - cy) * pc_z / fy
             extracted_chains_3d = np.vstack((pc_x, pc_y))
@@ -193,8 +150,6 @@ class TrackerInitializer(Node):
             nodes = spline_pts[np.linspace(0, num_true_pts-1, self.num_of_nodes).astype(int)]
 
             init_nodes = self.remove_duplicate_rows(nodes)
-            #results = ndarray2MarkerArray(init_nodes, self.result_frame_id, [1, 150/255, 0, 0.75], [0, 1, 0, 0.75])
-            #print(init_nodes)
             results = ndarray2MarkerArray(init_nodes, self.result_frame_id, [0.0, 149/255, 203/255, 0.75], [0.0, 149/255, 203/255, 0.75])
             self.results_pub.publish(results)
 
@@ -219,7 +174,7 @@ class TrackerInitializer(Node):
             self.header.stamp = self.get_clock().now().to_msg()
             converted_points = pcl2.create_cloud(self.header, self.fields, pc_colored_structured)
             self.pc_pub.publish(converted_points)
-            #print('Done with callback, Time taken:', time.time()-init_time)
+ 
         except Exception as e:
             self.get_logger().error(e)
             self.get_logger().error("Failed to extract splines.")
