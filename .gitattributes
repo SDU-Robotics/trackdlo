@@ -1,2 +1,1 @@
-*.pth !text !filter !merge !diff
 segmentation_model/multiview_tracking_dlo_segmentation_model.pth !text !filter !merge !diff
