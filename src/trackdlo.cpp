@@ -33,9 +33,6 @@ namespace trackdlo
     rgb_topic_ = params.rgb_topic;
     depth_topic_ = params.depth_topic;
     result_frame_id_ = params.result_frame_id;
-    // HSV color segmentation parameters
-    hsv_threshold_lower_limit_ = params.hsv_threshold_lower_limit;
-    hsv_threshold_upper_limit_ = params.hsv_threshold_upper_limit;
     // TrackDLO parameters
     beta_ = params.beta_mct;
     lambda_ = params.lambda_mct;
@@ -51,6 +48,7 @@ namespace trackdlo
     lambda_pre_proc_ = params.lambda_pre_proc;
     lle_weight_ = params.lle_weight;
     downsample_leaf_size_ = params.downsample_leaf_size;
+    output_lowpass_alpha_ = params.output_lowpass_alpha;
 
     // Init some variables
     initialized_ = false;
@@ -58,56 +56,28 @@ namespace trackdlo
     received_proj_matrix_ = false;
     converted_node_coord_ = { 0.0 };
     updated_opencv_mask_ = false;
+    updated_occlusion_mask_ = false;
+    received_mask_stamp_ = false;
+    received_occlusion_mask_stamp_ = false;
     proj_matrix_ = Eigen::MatrixXd(3, 4);
     multi_color_dlo_ = false;
     pre_proc_total_ = 0;
     algo_total_ = 0;
     pub_data_total_ = 0;
     frames_ = 0;
-
-    // update color thresholding lower bound
-    std::string rgb_val_lower = "";
-    for (int i = 0; i < hsv_threshold_lower_limit_.length(); i++)
-    {
-      if (hsv_threshold_lower_limit_.substr(i, 1) != " ")
-      {
-        rgb_val_lower += hsv_threshold_lower_limit_.substr(i, 1);
-      }
-      else
-      {
-        lower_.push_back(std::stoi(rgb_val_lower));
-        rgb_val_lower = "";
-      }
-
-      if (i == hsv_threshold_lower_limit_.length() - 1)
-      {
-        lower_.push_back(std::stoi(rgb_val_lower));
-      }
-    }
-
-    // update color thresholding upper bound
-    std::string rgb_val_upper = "";
-    for (int i = 0; i < hsv_threshold_upper_limit_.length(); i++)
-    {
-      if (hsv_threshold_upper_limit_.substr(i, 1) != " ")
-      {
-        rgb_val_upper += hsv_threshold_upper_limit_.substr(i, 1);
-      }
-      else
-      {
-        upper_.push_back(std::stoi(rgb_val_upper));
-        rgb_val_upper = "";
-      }
-
-      if (i == hsv_threshold_upper_limit_.length() - 1)
-      {
-        upper_.push_back(std::stoi(rgb_val_upper));
-      }
-    }
+    occlusion_loss_streak_ = 0;
+    occlusion_loss_streak_threshold_ = 8;
+    reinit_cooldown_frames_ = 30;
+    reinit_cooldown_counter_ = 0;
+    baseline_visible_ratio_ = 1.0;
+    baseline_visible_alpha_ = 0.05;
+    severe_visibility_drop_ratio_ = 0.45;
+    reinit_max_translation_ = 0.20;
 
     // Subcriptions
     it_ = std::make_shared<image_transport::ImageTransport>(shared_from_this());
-    opencv_mask_sub_ = it_->subscribe("/mask_with_occlusion", 10, std::bind(&TrackDLONode::update_opencv_mask, this, _1));
+    opencv_mask_sub_ = it_->subscribe("/mask", 10, std::bind(&TrackDLONode::update_opencv_mask, this, _1));
+    occlusion_sim_mask_sub_ = it_->subscribe("/mask_with_occlusion", 10, std::bind(&TrackDLONode::update_occlusion_sim_mask, this, _1));
     init_nodes_sub_ = this->create_subscription<sensor_msgs::msg::PointCloud2>("/trackdlo/init_nodes", rclcpp::QoS(rclcpp::KeepLast(5)).best_effort().durability_volatile(), std::bind(&TrackDLONode::update_init_nodes, this, _1));
     camera_info_sub_ = this->create_subscription<sensor_msgs::msg::CameraInfo>(camera_info_topic_, rclcpp::QoS(rclcpp::KeepLast(5)).best_effort().durability_volatile(), std::bind(&TrackDLONode::update_camera_info, this, _1));
 
@@ -144,10 +114,37 @@ namespace trackdlo
 
   void TrackDLONode::update_opencv_mask(const sensor_msgs::msg::Image::ConstPtr& opencv_mask_msg)
   {
-    occlusion_mask_ = cv_bridge::toCvShare(opencv_mask_msg, "bgr8")->image;  // SAME
-    if (!occlusion_mask_.empty())
+    auto seg_cv = cv_bridge::toCvShare(opencv_mask_msg, opencv_mask_msg->encoding);
+    segmentation_mask_ = seg_cv->image.clone();
+    if (!segmentation_mask_.empty())
     {
       updated_opencv_mask_ = true;
+      latest_mask_stamp_ = rclcpp::Time(opencv_mask_msg->header.stamp);
+      received_mask_stamp_ = true;
+      segmentation_mask_buffer_.emplace_back(latest_mask_stamp_, segmentation_mask_);
+      constexpr size_t kMaskBufferSize = 30;
+      while (segmentation_mask_buffer_.size() > kMaskBufferSize)
+      {
+        segmentation_mask_buffer_.pop_front();
+      }
+    }
+  }
+
+  void TrackDLONode::update_occlusion_sim_mask(const sensor_msgs::msg::Image::ConstPtr& occlusion_sim_mask_msg)
+  {
+    auto occ_cv = cv_bridge::toCvShare(occlusion_sim_mask_msg, occlusion_sim_mask_msg->encoding);
+    occlusion_mask_ = occ_cv->image.clone();
+    if (!occlusion_mask_.empty())
+    {
+      updated_occlusion_mask_ = true;
+      latest_occlusion_mask_stamp_ = rclcpp::Time(occlusion_sim_mask_msg->header.stamp);
+      received_occlusion_mask_stamp_ = true;
+      occlusion_mask_buffer_.emplace_back(latest_occlusion_mask_stamp_, occlusion_mask_);
+      constexpr size_t kOcclusionMaskBufferSize = 30;
+      while (occlusion_mask_buffer_.size() > kOcclusionMaskBufferSize)
+      {
+        occlusion_mask_buffer_.pop_front();
+      }
     }
   }
 
@@ -176,38 +173,78 @@ namespace trackdlo
     // camera_info_sub.shutdown(); TODO
   }
 
-  Mat TrackDLONode::color_thresholding(Mat cur_image_hsv)
+  bool TrackDLONode::reinitialize_after_full_occlusion(const MatrixXd& X)
   {
-    std::vector<int> lower_blue = { 90, 90, 60 };
-    std::vector<int> upper_blue = { 130, 255, 255 };
+    if (!received_proj_matrix_ || X.rows() < 10)
+    {
+      return false;
+    }
 
-    std::vector<int> lower_red_1 = { 130, 60, 50 };
-    std::vector<int> upper_red_1 = { 255, 255, 255 };
+    if (!tracker_ || Y_.rows() == 0)
+    {
+      return false;
+    }
 
-    std::vector<int> lower_red_2 = { 0, 60, 50 };
-    std::vector<int> upper_red_2 = { 10, 255, 255 };
+    MatrixXd base_nodes = Y_.replicate(1, 1);
 
-    std::vector<int> lower_yellow = { 15, 100, 80 };
-    std::vector<int> upper_yellow = { 40, 255, 255 };
+    const Eigen::RowVector3d cloud_centroid = X.colwise().mean();
+    const Eigen::RowVector3d base_centroid = base_nodes.colwise().mean();
+    Eigen::RowVector3d translation = cloud_centroid - base_centroid;
 
-    Mat mask_blue, mask_red_1, mask_red_2, mask_red, mask_yellow, mask;
-    // filter blue
-    cv::inRange(cur_image_hsv, cv::Scalar(lower_blue[0], lower_blue[1], lower_blue[2]), cv::Scalar(upper_blue[0], upper_blue[1], upper_blue[2]), mask_blue);
+    double translation_norm = translation.norm();
+    if (!std::isfinite(translation_norm))
+    {
+      return false;
+    }
 
-    // filter red
-    cv::inRange(cur_image_hsv, cv::Scalar(lower_red_1[0], lower_red_1[1], lower_red_1[2]), cv::Scalar(upper_red_1[0], upper_red_1[1], upper_red_1[2]), mask_red_1);
-    cv::inRange(cur_image_hsv, cv::Scalar(lower_red_2[0], lower_red_2[1], lower_red_2[2]), cv::Scalar(upper_red_2[0], upper_red_2[1], upper_red_2[2]), mask_red_2);
+    if (translation_norm > reinit_max_translation_)
+    {
+      translation *= (reinit_max_translation_ / translation_norm);
+      translation_norm = reinit_max_translation_;
+    }
 
-    // filter yellow
-    cv::inRange(cur_image_hsv, cv::Scalar(lower_yellow[0], lower_yellow[1], lower_yellow[2]), cv::Scalar(upper_yellow[0], upper_yellow[1], upper_yellow[2]), mask_yellow);
+    MatrixXd translated_nodes = base_nodes.rowwise() + translation;
+    MatrixXd reinit_nodes = translated_nodes.replicate(1, 1);
 
-    // combine red mask
-    cv::bitwise_or(mask_red_1, mask_red_2, mask_red);
-    // combine overall mask
-    cv::bitwise_or(mask_red, mask_blue, mask);
-    cv::bitwise_or(mask_yellow, mask, mask);
+    // Build a fresh shape from the current cloud by snapping translated nodes to nearest cloud points.
+    for (int i = 0; i < translated_nodes.rows(); i++)
+    {
+      int nearest_idx = 0;
+      double nearest_dist_sq = std::numeric_limits<double>::max();
+      for (int j = 0; j < X.rows(); j++)
+      {
+        const double dist_sq = (translated_nodes.row(i) - X.row(j)).squaredNorm();
+        if (dist_sq < nearest_dist_sq)
+        {
+          nearest_dist_sq = dist_sq;
+          nearest_idx = j;
+        }
+      }
+      reinit_nodes.row(i) = X.row(nearest_idx);
+    }
 
-    return mask;
+    // Mild 1D smoothing along node order to suppress cloud noise in the fresh shape.
+    MatrixXd smoothed_nodes = reinit_nodes.replicate(1, 1);
+    for (int i = 1; i < reinit_nodes.rows() - 1; i++)
+    {
+      smoothed_nodes.row(i) = (reinit_nodes.row(i - 1) + reinit_nodes.row(i) + reinit_nodes.row(i + 1)) / 3.0;
+    }
+    reinit_nodes = smoothed_nodes;
+
+    tracker_ = std::make_shared<trackdlo::TrackDLO>(
+      reinit_nodes.rows(), visibility_threshold_, beta_, lambda_, alpha_, k_vis_, mu_,
+      max_iter_, tol_, beta_pre_proc_, lambda_pre_proc_, lle_weight_);
+    tracker_->initialize_nodes(reinit_nodes);
+    tracker_->initialize_geodesic_coord(converted_node_coord_);
+
+    Y_ = reinit_nodes;
+    Y_filtered_ = reinit_nodes;
+    sigma2_ = 0.001;
+
+    RCLCPP_WARN(this->get_logger(),
+      "Visibility-drop recovery: tracker reinitialized after %d low-visibility frame(s), shift %.3f m.",
+      occlusion_loss_streak_, translation_norm);
+    return true;
   }
 
 void TrackDLONode::sync_callback(const sensor_msgs::msg::Image::ConstSharedPtr& image_msg, const sensor_msgs::msg::Image::ConstSharedPtr& depth_msg)
@@ -239,6 +276,7 @@ void TrackDLONode::sync_callback(const sensor_msgs::msg::Image::ConstSharedPtr& 
         tracker_->initialize_nodes(init_nodes_);
         tracker_->initialize_geodesic_coord(converted_node_coord_);
         Y_ = init_nodes_.replicate(1, 1);
+        Y_filtered_ = Y_.replicate(1, 1);
 
         initialized_ = true;
         std::cout << "TrackDLO Initialized!" << std::endl;
@@ -252,29 +290,140 @@ void TrackDLONode::sync_callback(const sensor_msgs::msg::Image::ConstSharedPtr& 
       std::chrono::high_resolution_clock::time_point cur_time;
 
       Mat mask, mask_rgb, mask_without_occlusion_block;
-      Mat cur_image_hsv;
+      Mat cur_image;
+      Mat segmentation_mask_gray;
+      Mat occlusion_mask_gray;
 
-      // convert color
-      cv::cvtColor(cur_image_orig, cur_image_hsv, cv::COLOR_BGR2HSV);
-
-      if (!multi_color_dlo_)
+      if (segmentation_mask_buffer_.empty())
       {
-        // color_thresholding
-        cv::inRange(cur_image_hsv, cv::Scalar(lower_[0], lower_[1], lower_[2]), cv::Scalar(upper_[0], upper_[1], upper_[2]), mask_without_occlusion_block);
+        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000, "No segmentation mask received on /mask yet; skipping frame.");
+        tracking_img_pub_.publish(tracking_img_msg);
+        return;
+      }
+
+      const auto frame_stamp = rclcpp::Time(image_msg->header.stamp);
+
+      auto select_nearest_mask = [&](const std::deque<std::pair<rclcpp::Time, Mat>>& buffer,
+                                     Mat& selected_mask,
+                                     rclcpp::Time& selected_stamp,
+                                     double& selected_age_ms) -> bool
+      {
+        if (buffer.empty())
+        {
+          return false;
+        }
+
+        size_t best_idx = 0;
+        int64_t best_abs_diff_ns = std::numeric_limits<int64_t>::max();
+        for (size_t i = 0; i < buffer.size(); i++)
+        {
+          const int64_t diff_ns = (frame_stamp - buffer[i].first).nanoseconds();
+          const int64_t abs_diff_ns = diff_ns >= 0 ? diff_ns : -diff_ns;
+          if (abs_diff_ns < best_abs_diff_ns)
+          {
+            best_abs_diff_ns = abs_diff_ns;
+            best_idx = i;
+          }
+        }
+
+        selected_stamp = buffer[best_idx].first;
+        selected_mask = buffer[best_idx].second.clone();
+        selected_age_ms = static_cast<double>(best_abs_diff_ns) / 1e6;
+        return !selected_mask.empty();
+      };
+
+      Mat latest_mask;
+      rclcpp::Time selected_seg_stamp;
+      double mask_age_ms = 0.0;
+      if (!select_nearest_mask(segmentation_mask_buffer_, latest_mask, selected_seg_stamp, mask_age_ms))
+      {
+        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000, "Could not select a valid segmentation mask; skipping frame.");
+        tracking_img_pub_.publish(tracking_img_msg);
+        return;
+      }
+      latest_mask_stamp_ = selected_seg_stamp;
+      if (mask_age_ms > 200.0)
+      {
+        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000, "Using segmentation mask with large timestamp offset (%.1f ms).", mask_age_ms);
+      }
+
+      if (latest_mask.channels() == 1)
+      {
+        segmentation_mask_gray = latest_mask;
       }
       else
       {
-        mask_without_occlusion_block = color_thresholding(cur_image_hsv);
+        cv::cvtColor(latest_mask, segmentation_mask_gray, cv::COLOR_BGR2GRAY);
       }
 
-      // update cur image for visualization
-      Mat cur_image;
-      Mat occlusion_mask_gray;
-      if (updated_opencv_mask_)
+      if (segmentation_mask_gray.size() != cur_image_orig.size())
       {
-        cv::cvtColor(occlusion_mask_, occlusion_mask_gray, cv::COLOR_BGR2GRAY);
+        cv::resize(segmentation_mask_gray, segmentation_mask_gray, cur_image_orig.size(), 0, 0, cv::INTER_NEAREST);
+      }
+
+      double min_mask_val = 0.0;
+      double max_mask_val = 0.0;
+      cv::minMaxLoc(segmentation_mask_gray, &min_mask_val, &max_mask_val);
+      if (max_mask_val <= 1.0)
+      {
+        segmentation_mask_gray *= 255;
+      }
+
+      // Use a stricter threshold to avoid treating low-confidence nonzero values as cable.
+      cv::threshold(segmentation_mask_gray, mask_without_occlusion_block, 127, 255, cv::THRESH_BINARY);
+
+      // Recover thin/fragmented cable regions so visibility is not underestimated at tails.
+      cv::Mat morph_kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(3, 3));
+      cv::morphologyEx(mask_without_occlusion_block, mask_without_occlusion_block, cv::MORPH_CLOSE, morph_kernel);
+
+      const double foreground_ratio = static_cast<double>(cv::countNonZero(mask_without_occlusion_block)) / static_cast<double>(mask_without_occlusion_block.total());
+      if (foreground_ratio > 0.5)
+      {
+        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000, "Input mask polarity appears inverted (foreground ratio %.2f); auto-inverting.", foreground_ratio);
+        cv::bitwise_not(mask_without_occlusion_block, mask_without_occlusion_block);
+      }
+
+      // Optional occlusion overlay (simulator) is independent of segmentation.
+      bool use_occlusion_mask = false;
+      Mat selected_occlusion_mask;
+      if (!occlusion_mask_buffer_.empty())
+      {
+        rclcpp::Time selected_occ_stamp;
+        double occlusion_mask_age_ms = 0.0;
+        if (select_nearest_mask(occlusion_mask_buffer_, selected_occlusion_mask, selected_occ_stamp, occlusion_mask_age_ms))
+        {
+          latest_occlusion_mask_stamp_ = selected_occ_stamp;
+          if (occlusion_mask_age_ms <= 200.0)
+          {
+            use_occlusion_mask = true;
+            occlusion_mask_ = selected_occlusion_mask;
+          }
+          else
+          {
+            RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000, "Ignoring occlusion mask with large timestamp offset (%.1f ms).", occlusion_mask_age_ms);
+          }
+        }
+      }
+
+      if (use_occlusion_mask)
+      {
+        if (occlusion_mask_.channels() == 1)
+        {
+          occlusion_mask_gray = occlusion_mask_;
+        }
+        else
+        {
+          cv::cvtColor(occlusion_mask_, occlusion_mask_gray, cv::COLOR_BGR2GRAY);
+        }
+
+        if (occlusion_mask_gray.size() != cur_image_orig.size())
+        {
+          cv::resize(occlusion_mask_gray, occlusion_mask_gray, cur_image_orig.size(), 0, 0, cv::INTER_NEAREST);
+        }
+
+        cv::threshold(occlusion_mask_gray, occlusion_mask_gray, 127, 255, cv::THRESH_BINARY);
         cv::bitwise_and(mask_without_occlusion_block, occlusion_mask_gray, mask);
-        cv::bitwise_and(cur_image_orig, occlusion_mask_, cur_image);
+        cv::bitwise_and(cur_image_orig, cur_image_orig, cur_image, occlusion_mask_gray);
       }
       else
       {
@@ -283,6 +432,8 @@ void TrackDLONode::sync_callback(const sensor_msgs::msg::Image::ConstSharedPtr& 
       }
 
       cv::cvtColor(mask, mask_rgb, cv::COLOR_GRAY2BGR);  // SAME
+      sensor_msgs::msg::Image::SharedPtr mask_msg = cv_bridge::CvImage(image_msg->header, "bgr8", mask_rgb).toImageMsg();
+      mask_pub_.publish(mask_msg);
 
       bool simulated_occlusion = false;
       int occlusion_corner_i = -1;
@@ -300,7 +451,7 @@ void TrackDLONode::sync_callback(const sensor_msgs::msg::Image::ConstSharedPtr& 
         for (int j = 0; j < mask.cols; j++)
         {
           // for text label (visualization)
-          if (updated_opencv_mask_ && !simulated_occlusion && occlusion_mask_gray.at<uchar>(i, j) == 0)
+            if (use_occlusion_mask && !simulated_occlusion && occlusion_mask_gray.at<uchar>(i, j) == 0)
           {
             occlusion_corner_i = i;
             occlusion_corner_j = j;
@@ -308,7 +459,7 @@ void TrackDLONode::sync_callback(const sensor_msgs::msg::Image::ConstSharedPtr& 
           }
 
           // update the other corner of occlusion mask (visualization)
-          if (updated_opencv_mask_ && occlusion_mask_gray.at<uchar>(i, j) == 0)
+            if (use_occlusion_mask && occlusion_mask_gray.at<uchar>(i, j) == 0)
           {
             occlusion_corner_i_2 = i;
             occlusion_corner_j_2 = j;
@@ -490,15 +641,80 @@ void TrackDLONode::sync_callback(const sensor_msgs::msg::Image::ConstSharedPtr& 
       MatrixXd Y_0 = Y_.replicate(1, 1);
 
       // step tracker
-      std::chrono::high_resolution_clock::time_point current_time = std::chrono::high_resolution_clock::now();
-      bool result = tracker_->tracking_step(X, visible_nodes, visible_nodes_extended, proj_matrix_, mask.rows, mask.cols);
-      double track_step_diff = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - current_time).count() / 1000.0;
-      RCLCPP_INFO_STREAM(rclcpp::get_logger("rclcpp"), "Tracking step took: " + std::to_string(track_step_diff) + " ms");
+      bool result = false;
+      if (X.rows() == 0)
+      {
+        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000, "Downsampled point cloud is empty; skipping tracking update for this frame.");
+      }
+      else if (visible_nodes_extended.empty())
+      {
+        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000, "No visible nodes inferred from mask; skipping tracking update for this frame.");
+      }
+      else if (visible_nodes_extended.size() < 2)
+      {
+        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000, "Only %zu visible node(s) inferred; need at least 2 for stable tracking update. Skipping frame.", visible_nodes_extended.size());
+      }
+      else
+      {
+        std::chrono::high_resolution_clock::time_point current_time = std::chrono::high_resolution_clock::now();
+        result = tracker_->tracking_step(X, visible_nodes, visible_nodes_extended, proj_matrix_, mask.rows, mask.cols);
+        double track_step_diff = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - current_time).count() / 1000.0;
+        RCLCPP_INFO_STREAM(rclcpp::get_logger("rclcpp"), "Tracking step took: " + std::to_string(track_step_diff) + " ms");
+      }
       if(result == true)
       {
-        Y_ = tracker_->get_tracking_result();
+        MatrixXd Y_raw = tracker_->get_tracking_result();
+        if (Y_filtered_.rows() == Y_raw.rows() && Y_filtered_.cols() == Y_raw.cols())
+        {
+          const double alpha = std::min(1.0, std::max(0.0, output_lowpass_alpha_));
+          Y_filtered_ = (1.0 - alpha) * Y_filtered_ + alpha * Y_raw;
+          Y_ = Y_filtered_.replicate(1, 1);
+        }
+        else
+        {
+          Y_filtered_ = Y_raw.replicate(1, 1);
+          Y_ = Y_raw;
+        }
         guide_nodes = tracker_->get_guide_nodes();
         priors = tracker_->get_correspondence_pairs();
+      }
+
+      if (reinit_cooldown_counter_ > 0)
+      {
+        reinit_cooldown_counter_ -= 1;
+      }
+
+      const double visible_ratio = (Y_.rows() > 0)
+        ? static_cast<double>(visible_nodes.size()) / static_cast<double>(Y_.rows())
+        : 0.0;
+
+      // Learn baseline visibility only from non-occlusion-mask frames where tracking succeeded.
+      if (!use_occlusion_mask && result)
+      {
+        baseline_visible_ratio_ =
+          (1.0 - baseline_visible_alpha_) * baseline_visible_ratio_ + baseline_visible_alpha_ * visible_ratio;
+        baseline_visible_ratio_ = std::max(0.2, std::min(1.0, baseline_visible_ratio_));
+      }
+
+      const double severe_visibility_threshold = baseline_visible_ratio_ * severe_visibility_drop_ratio_;
+      const bool severe_visibility_drop = visible_ratio <= severe_visibility_threshold;
+
+      if (severe_visibility_drop)
+      {
+        occlusion_loss_streak_ += 1;
+      }
+      else
+      {
+        occlusion_loss_streak_ = 0;
+      }
+
+      if (occlusion_loss_streak_ >= occlusion_loss_streak_threshold_ && reinit_cooldown_counter_ == 0)
+      {
+        if (reinitialize_after_full_occlusion(X))
+        {
+          occlusion_loss_streak_ = 0;
+          reinit_cooldown_counter_ = reinit_cooldown_frames_;
+        }
       }
 
       // log time
@@ -525,8 +741,7 @@ void TrackDLONode::sync_callback(const sensor_msgs::msg::Image::ConstSharedPtr& 
       nodes_h.col(nodes_h.cols() - 1) = MatrixXd::Ones(nodes_h.rows(), 1);
       MatrixXd image_coords = (proj_matrix_ * nodes_h.transpose()).transpose();
 
-      Mat tracking_img;
-      tracking_img = 0.5 * cur_image_orig + 0.5 * cur_image;
+      Mat tracking_img = cur_image_orig.clone();
 
       std::vector<int> vis = visible_nodes;
       // std::vector<int> vis = not_self_occluded_nodes;
@@ -576,7 +791,7 @@ void TrackDLONode::sync_callback(const sensor_msgs::msg::Image::ConstSharedPtr& 
       }
 
       // add text
-      if (updated_opencv_mask_ && simulated_occlusion)
+      if (use_occlusion_mask && simulated_occlusion)
       {
         cv::putText(tracking_img, "occlusion", cv::Point(occlusion_corner_j, occlusion_corner_i - 10), cv::FONT_HERSHEY_DUPLEX, 1.2, cv::Scalar(0, 0, 240), 2);
       }
@@ -850,34 +1065,32 @@ void TrackDLONode::sync_callback(const sensor_msgs::msg::Image::ConstSharedPtr& 
   std::vector<int> TrackDLO::get_nearest_indices(int k, int M, int idx)
   {
     std::vector<int> indices_arr;
-    if (idx - k < 0)
+
+    if (M <= 1)
     {
-      for (int i = 0; i <= idx + k; i++)
+      return indices_arr;
+    }
+
+    const int start = std::max(0, idx - k);
+    const int end = std::min(M - 1, idx + k);
+    for (int i = start; i <= end; i++)
+    {
+      if (i != idx)
       {
-        if (i != idx)
-        {
-          indices_arr.push_back(i);
-        }
+        indices_arr.push_back(i);
       }
     }
-    else if (idx + k >= M)
+
+    // Fallback: when k is 0, use immediate neighbors if available.
+    if (indices_arr.empty())
     {
-      for (int i = idx - k; i <= M - 1; i++)
+      if (idx - 1 >= 0)
       {
-        if (i != idx)
-        {
-          indices_arr.push_back(i);
-        }
+        indices_arr.push_back(idx - 1);
       }
-    }
-    else
-    {
-      for (int i = idx - k; i <= idx + k; i++)
+      if (idx + 1 < M)
       {
-        if (i != idx)
-        {
-          indices_arr.push_back(i);
-        }
+        indices_arr.push_back(idx + 1);
       }
     }
 
@@ -890,6 +1103,11 @@ void TrackDLONode::sync_callback(const sensor_msgs::msg::Image::ConstSharedPtr& 
     for (Eigen::Index i = 0; i < X.rows(); i++)
     {
       std::vector<int> indices = get_nearest_indices(static_cast<int>(k / 2), X.rows(), i);
+      if (indices.empty())
+      {
+        continue;
+      }
+
       MatrixXd xi = X.row(i);
       MatrixXd Xi = MatrixXd(indices.size(), X.cols());
 
@@ -1089,31 +1307,46 @@ void TrackDLONode::sync_callback(const sensor_msgs::msg::Image::ConstSharedPtr& 
         P.col(i).maxCoeff(&max_p_nodes[i]);
         int max_p_node = max_p_nodes[i];
 
-        int potential_2nd_max_p_node_1 = max_p_node - 1;
-        if (potential_2nd_max_p_node_1 == -1)
-        {
-          potential_2nd_max_p_node_1 = 2;
-        }
+          int next_max_p_node = max_p_node;
+          const int left_neighbor = max_p_node - 1;
+          const int right_neighbor = max_p_node + 1;
+          const bool has_left = left_neighbor >= 0;
+          const bool has_right = right_neighbor < M;
 
-        int potential_2nd_max_p_node_2 = max_p_node + 1;
-        if (potential_2nd_max_p_node_2 == M)
-        {
-          potential_2nd_max_p_node_2 = M - 3;
-        }
-
-        int next_max_p_node;
-        if (pt2pt_dis(Y.row(potential_2nd_max_p_node_1), X.row(i)) < pt2pt_dis(Y.row(potential_2nd_max_p_node_2), X.row(i)))
-        {
-          next_max_p_node = potential_2nd_max_p_node_1;
-        }
-        else
-        {
-          next_max_p_node = potential_2nd_max_p_node_2;
-        }
+          if (has_left && has_right)
+          {
+            if (pt2pt_dis(Y.row(left_neighbor), X.row(i)) < pt2pt_dis(Y.row(right_neighbor), X.row(i)))
+            {
+              next_max_p_node = left_neighbor;
+            }
+            else
+            {
+              next_max_p_node = right_neighbor;
+            }
+          }
+          else if (has_left)
+          {
+            next_max_p_node = left_neighbor;
+          }
+          else if (has_right)
+          {
+            next_max_p_node = right_neighbor;
+          }
 
         // fill the current column of pts_dis_sq_geodesic
         pts_dis_sq_geodesic(max_p_node, i) = pt2pt_dis_sq(Y.row(max_p_node), X.row(i));
-        pts_dis_sq_geodesic(next_max_p_node, i) = pt2pt_dis_sq(Y.row(next_max_p_node), X.row(i));
+          if (next_max_p_node != max_p_node)
+          {
+            pts_dis_sq_geodesic(next_max_p_node, i) = pt2pt_dis_sq(Y.row(next_max_p_node), X.row(i));
+          }
+          else
+          {
+            for (int j = 0; j < M; j++)
+            {
+              pts_dis_sq_geodesic(j, i) = pow(abs(converted_node_coord[j] - converted_node_coord[max_p_node]) + pt2pt_dis(Y.row(max_p_node), X.row(i)), 2);
+            }
+            continue;
+          }
 
         if (max_p_node < next_max_p_node)
         {
@@ -1787,6 +2020,12 @@ void TrackDLONode::sync_callback(const sensor_msgs::msg::Image::ConstSharedPtr& 
   {
     RCLCPP_INFO_STREAM(rclcpp::get_logger("rclcpp"), "Num of visible nodes:" + std::to_string(visible_nodes.size()));
     RCLCPP_INFO_STREAM(rclcpp::get_logger("rclcpp"), "Num of visible nodes extended:" + std::to_string(visible_nodes_extended.size()));
+
+    if (X_orig.rows() == 0 || visible_nodes_extended.size() < 2)
+    {
+      RCLCPP_WARN(rclcpp::get_logger("rclcpp"), "Skipping tracking_step due to insufficient input cloud/visibility support.");
+      return false;
+    }
     
     auto start = std::chrono::high_resolution_clock::now();
     // variable initialization

@@ -23,7 +23,7 @@ trackdlo:
   # --- TrackDLO parameters
   num_of_nodes:
     type: int
-    default_value: 50
+    default_value: 25
     read_only: true
 
   # beta and lambda: MCT weights. the larger they are, the more rigid the object becomes
@@ -116,9 +116,15 @@ trackdlo:
 
   downsample_leaf_size: 
     type: double
-    default_value: 0.02 # 0.008
+    default_value: 0.01 # 0.008
     read_only: true
     description: "downsample_leaf_size: a parameter for the GLTP registration during pre-processing"
+
+  output_lowpass_alpha:
+    type: double
+    default_value: 0.35
+    read_only: true
+    description: "EMA low-pass factor for tracked node output; lower is smoother, higher is more responsive"
 
   multi_color_dlo: 
     type: bool
@@ -131,5 +137,11 @@ trackdlo:
     default_value: false
     read_only: true
     description: "Whether to visualize the init process or not (for debugging)"
+
+  enable_consensus_depth_correction:
+    type: bool
+    default_value: true
+    read_only: true
+    description: "Enable consensus voting based depth correction for init nodes"
 
     

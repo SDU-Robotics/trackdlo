@@ -1,7 +1,7 @@
 <launch>
 
   <include file="$(find-pkg-share realsense2_camera)/launch/rs_launch.py">
-    <arg name="json_file_path" value="$(find-pkg-share trackdlo)/config/preset_decimation_4.0_depth_step_100.json" />
+    <arg name="json_file_path" value="$(find-pkg-share trackdlo)/config/supersweet_rs_config_2.json" />
     <arg name="publish_tf" value="false" />
     <!--
     <arg name="filters" value="pointcloud,temporal,decimation" />

@@ -6,6 +6,7 @@
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 #include <vector>
+#include <deque>
 
 #include <rclcpp/rclcpp.hpp>
 #include <image_transport/image_transport.hpp>
@@ -179,11 +180,13 @@ class TrackDLONode : public rclcpp::Node
 
     void update_opencv_mask(const sensor_msgs::msg::Image::ConstPtr& opencv_mask_msg);
 
+    void update_occlusion_sim_mask(const sensor_msgs::msg::Image::ConstPtr& occlusion_sim_mask_msg);
+
     void update_init_nodes(const sensor_msgs::msg::PointCloud2::ConstPtr& pc_msg);
 
     void update_camera_info(const sensor_msgs::msg::CameraInfo::ConstPtr& cam_msg);
 
-    Mat color_thresholding(Mat cur_image_hsv);
+    bool reinitialize_after_full_occlusion(const MatrixXd& X);
 
   private:
     std::shared_ptr<TrackDLO> tracker_;
@@ -191,21 +194,25 @@ class TrackDLONode : public rclcpp::Node
     std::string rgb_topic_;
     std::string depth_topic_;
     std::string result_frame_id_;
-    std::string hsv_threshold_lower_limit_;
-    std::string hsv_threshold_upper_limit_;
-
-    std::vector<int> upper_;
-    std::vector<int> lower_;
 
     MatrixXd Y_;
+    MatrixXd Y_filtered_;
     double sigma2_;
     bool initialized_;
     bool received_init_nodes_;
     bool received_proj_matrix_;
     MatrixXd init_nodes_;
     std::vector<double> converted_node_coord_;
+    Mat segmentation_mask_;
     Mat occlusion_mask_;
+    std::deque<std::pair<rclcpp::Time, Mat>> segmentation_mask_buffer_;
+    std::deque<std::pair<rclcpp::Time, Mat>> occlusion_mask_buffer_;
     bool updated_opencv_mask_;
+    bool updated_occlusion_mask_;
+    rclcpp::Time latest_mask_stamp_;
+    bool received_mask_stamp_;
+    rclcpp::Time latest_occlusion_mask_stamp_;
+    bool received_occlusion_mask_stamp_;
     MatrixXd proj_matrix_;
     bool multi_color_dlo_;
 
@@ -223,14 +230,24 @@ class TrackDLONode : public rclcpp::Node
     double lambda_pre_proc_;
     double lle_weight_;
     double downsample_leaf_size_;
+    double output_lowpass_alpha_;
 
     double pre_proc_total_;
     double algo_total_;
     double pub_data_total_;
     int frames_;
+    int occlusion_loss_streak_;
+    int occlusion_loss_streak_threshold_;
+    int reinit_cooldown_frames_;
+    int reinit_cooldown_counter_;
+    double baseline_visible_ratio_;
+    double baseline_visible_alpha_;
+    double severe_visibility_drop_ratio_;
+    double reinit_max_translation_;
 
     std::shared_ptr<image_transport::ImageTransport> it_;
     image_transport::Subscriber opencv_mask_sub_;
+    image_transport::Subscriber occlusion_sim_mask_sub_;
     std::shared_ptr<message_filters::Subscriber<sensor_msgs::msg::Image>> image_sub_;
     std::shared_ptr<message_filters::Subscriber<sensor_msgs::msg::Image>> depth_sub_;
     // Synchronizer policy
